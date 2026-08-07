@@ -72,8 +72,64 @@ export default function Home(){
  const[otMode,setOtMode]=useState('none'); const[dailyThreshold,setDailyThreshold]=useState(8); const[weeklyThreshold,setWeeklyThreshold]=useState(40); const[message,setMessage]=useState(''); const[summary,setSummary]=useState<any>(null); const fileRef=useRef<HTMLInputElement>(null)
  const update=(i:number,k:keyof Row,v:any)=>setRows(x=>x.map((r,n)=>n===i?{...r,[k]:v}:r));
  const payload=useMemo(()=>({timecard:{employee_name:employee,week_start:weekStart,week_end:weekEnd,rows},overtime:{mode:otMode,daily_threshold:dailyThreshold,weekly_threshold:weeklyThreshold,custom_threshold:weeklyThreshold},holiday_in_regular:false,on_call_in_regular:false,call_back_in_regular:false}),[employee,weekStart,weekEnd,rows,otMode,dailyThreshold,weeklyThreshold])
- async function upload(file?:File){if(!file)return; setMessage('Reading timecard…'); const f=new FormData();f.append('file',file);try{const r=await fetch(`${API}/extract`,{method:'POST',body:f});const d=await r.json(); if(!r.ok)throw new Error(d.detail||'Upload failed'); setEmployee(d.employee_name||'');setWeekStart(d.week_start||'');setWeekEnd(d.week_end||'');setRows(d.rows?.length?d.rows:[emptyRow()]);setMessage(d.warnings?.[0]||'Extraction complete. Review all fields before calculating.')}catch(e:any){setMessage(e.message||'Could not read file')}}
- async function calculate(){setMessage('');const r=await fetch(`${API}/calculate`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();setRows(d.rows||rows);setSummary(d.summary)}
+ async function upload(file?: File) {
+  if (!file) return
+
+  setMessage('Reading timecard…')
+
+  const ext = file.name.toLowerCase().split('.').pop()
+
+  try {
+    if (['pdf', 'jpg', 'jpeg', 'png'].includes(ext || '')) {
+      setMessage('Reading timecard with OCR…')
+
+      const text = await runBrowserOcr(file)
+
+      console.log('OCR TEXT:', text)
+
+      if (!text || text.trim().length < 10) {
+        setMessage(
+          "We couldn't confidently read this timecard. Please enter or correct the information manually."
+        )
+        return
+      }
+
+      setMessage(
+        'OCR completed successfully. The document text was detected.'
+      )
+
+      return
+    }
+
+    const f = new FormData()
+    f.append('file', file)
+
+    const r = await fetch(`${API}/extract`, {
+      method: 'POST',
+      body: f
+    })
+
+    const d = await r.json()
+
+    if (!r.ok) {
+      throw new Error(d.detail || 'Upload failed')
+    }
+
+    setEmployee(d.employee_name || '')
+    setWeekStart(d.week_start || '')
+    setWeekEnd(d.week_end || '')
+    setRows(d.rows?.length ? d.rows : [emptyRow()])
+
+    setMessage(
+      d.warnings?.[0] ||
+      'Extraction complete. Review all fields before calculating.'
+    )
+
+  } catch (e: any) {
+    console.error(e)
+    setMessage(e.message || 'Could not read file')
+  }
+} async function calculate(){setMessage('');const r=await fetch(`${API}/calculate`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();setRows(d.rows||rows);setSummary(d.summary)}
  async function downloadCsv(){const r=await fetch(`${API}/export/csv`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const b=await r.blob();const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='timecard-summary.csv';a.click();URL.revokeObjectURL(u)}
  return <main className="wrap">
   <nav className="nav"><div className="brand">TimeCard Calculator</div><div>Privacy-first • No account required</div></nav>
