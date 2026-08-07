@@ -7,17 +7,6 @@ const API=process.env.NEXT_PUBLIC_API_URL||'http://localhost:8000'
 async function runBrowserOcr(file: File): Promise<string> {
   const ext = file.name.toLowerCase().split('.').pop()
 
-  if (['jpg', 'jpeg', 'png'].includes(ext || '')) {
-    const Tesseract = await import('tesseract.js')
-    const result = await Tesseract.recognize(file, 'eng')
-    return result.data.text || ''
-  }
-
-  return ''
-}
-async function runBrowserOcr(file: File): Promise<string> {
-  const ext = file.name.toLowerCase().split('.').pop()
-
   // JPG / JPEG / PNG
   if (['jpg', 'jpeg', 'png'].includes(ext || '')) {
     const Tesseract = await import('tesseract.js')
