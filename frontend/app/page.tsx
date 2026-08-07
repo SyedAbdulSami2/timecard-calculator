@@ -3,7 +3,7 @@ import {useMemo,useRef,useState} from 'react'
 
 type Row={date:string;day:string;clock_in:string;clock_out:string;break_minutes:number;regular_hours:number;overtime_hours:number;holiday_hours:number;on_call_hours:number;call_back_hours:number;total_hours:number;warning?:string}
 const emptyRow=():Row=>({date:'',day:'',clock_in:'',clock_out:'',break_minutes:0,regular_hours:0,overtime_hours:0,holiday_hours:0,on_call_hours:0,call_back_hours:0,total_hours:0})
-const API=process.env.NEXT_PUBLIC_API_URL||'http://localhost:8000'
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 async function runBrowserOcr(file: File): Promise<string> {
   const ext = file.name.toLowerCase().split('.').pop()
 
@@ -18,8 +18,8 @@ async function runBrowserOcr(file: File): Promise<string> {
   if (ext === 'pdf') {
     const pdfjs = await import('pdfjs-dist')
 
-    pdfjs.GlobalWorkerOptions.workerSrc =
-      `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`
+   pdfjs.GlobalWorkerOptions.workerSrc =
+  `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`
 
     const data = new Uint8Array(await file.arrayBuffer())
     const pdf = await pdfjs.getDocument({ data }).promise
