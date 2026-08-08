@@ -51,10 +51,11 @@ async function runBrowserOcr(file: File): Promise<string> {
       canvas.width = viewport.width
       canvas.height = viewport.height
 
-      await page.render({
-        canvasContext: ctx,
-        viewport
-      }).promise
+    await page.render({
+     canvasContext: ctx,
+     canvas,
+     viewport
+     }).promise
 
       const Tesseract = await import('tesseract.js')
       const result = await Tesseract.recognize(canvas, 'eng')
