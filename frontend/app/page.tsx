@@ -37,19 +37,28 @@ const API =
 async function runBrowserOcr(file: File): Promise<string> {
   const ext = file.name.toLowerCase().split('.').pop()
 
+  // JPG / JPEG / PNG
   if (['jpg', 'jpeg', 'png'].includes(ext || '')) {
     const Tesseract = await import('tesseract.js')
-    const result = await Tesseract.recognize(file, 'eng')
+
+    const result = await Tesseract.recognize(
+      file,
+      'eng'
+    )
+
     return result.data.text || ''
   }
 
+  // PDF
   if (ext === 'pdf') {
     const pdfjs = await import('pdfjs-dist')
 
     pdfjs.GlobalWorkerOptions.workerSrc =
       `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`
 
-    const data = new Uint8Array(await file.arrayBuffer())
+    const data = new Uint8Array(
+      await file.arrayBuffer()
+    )
 
     const pdf = await pdfjs.getDocument({
       data,
@@ -64,6 +73,7 @@ async function runBrowserOcr(file: File): Promise<string> {
     ) {
       const page = await pdf.getPage(pageNumber)
 
+      // Try embedded PDF text first
       const content = await page.getTextContent()
 
       const embeddedText = content.items
@@ -76,16 +86,18 @@ async function runBrowserOcr(file: File): Promise<string> {
         continue
       }
 
+      // Otherwise render page and OCR it
       const viewport = page.getViewport({
         scale: 2,
       })
 
-      const canvas = document.createElement('canvas')
-      const ctx = canvas.getContext('2d')
+      const canvas =
+        document.createElement('canvas')
 
-      if (!ctx) {
-        continue
-      }
+      const ctx =
+        canvas.getContext('2d')
+
+      if (!ctx) continue
 
       canvas.width = viewport.width
       canvas.height = viewport.height
@@ -96,14 +108,17 @@ async function runBrowserOcr(file: File): Promise<string> {
         viewport,
       }).promise
 
-      const Tesseract = await import('tesseract.js')
+      const Tesseract =
+        await import('tesseract.js')
 
-      const result = await Tesseract.recognize(
-        canvas,
-        'eng'
-      )
+      const result =
+        await Tesseract.recognize(
+          canvas,
+          'eng'
+        )
 
-      allText += '\n' + (result.data.text || '')
+      allText +=
+        '\n' + (result.data.text || '')
     }
 
     return allText.trim()
@@ -114,19 +129,15 @@ async function runBrowserOcr(file: File): Promise<string> {
 
 function parseBasicOcr(text: string) {
   const employeeMatch = text.match(
-    /Employee Name:\s*([^\n]+)/i
+    /Employee\s*Name\s*:\s*([^\n\r]+)/i
   )
 
   const agencyMatch = text.match(
-    /Agency Name:\s*([^\n]+)/i
+    /Agency\s*Name\s*:\s*([^\n\r]+)/i
   )
 
   const facilityMatch = text.match(
-    /Facility Name:\s*([^\n]+)/i
-  )
-
-  const weekMatch = text.match(
-    /Week Ending:\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/i
+    /Facility\s+(?:Name|Namo)\s*:\s*([^\n\r]+)/i
   )
 
   return {
@@ -138,45 +149,49 @@ function parseBasicOcr(text: string) {
 
     facility_name:
       facilityMatch?.[1]?.trim() || '',
-
-    week_end:
-      weekMatch?.[1]?.trim() || '',
   }
 }
 
 export default function Home() {
   const [employee, setEmployee] = useState('')
-  const [weekStart, setWeekStart] = useState('')
-  const [weekEnd, setWeekEnd] = useState('')
 
   const [rows, setRows] = useState<Row[]>([
     emptyRow(),
   ])
 
-  const [otMode, setOtMode] = useState('none')
-  const [dailyThreshold, setDailyThreshold] =
-    useState(8)
+  const [otMode, setOtMode] =
+    useState('none')
 
-  const [weeklyThreshold, setWeeklyThreshold] =
-    useState(40)
+  const [
+    dailyThreshold,
+    setDailyThreshold,
+  ] = useState(8)
 
-  const [message, setMessage] = useState('')
-  const [summary, setSummary] = useState<any>(null)
+  const [
+    weeklyThreshold,
+    setWeeklyThreshold,
+  ] = useState(40)
+
+  const [message, setMessage] =
+    useState('')
+
+  const [summary, setSummary] =
+    useState<any>(null)
 
   const fileRef =
     useRef<HTMLInputElement>(null)
 
   const update = (
-    i: number,
-    k: keyof Row,
-    v: any
+    index: number,
+    key: keyof Row,
+    value: any
   ) => {
     setRows((current) =>
-      current.map((row, index) =>
-        index === i
+      current.map((row, rowIndex) =>
+        rowIndex === index
           ? {
               ...row,
-              [k]: v,
+              [key]: value,
             }
           : row
       )
@@ -187,16 +202,23 @@ export default function Home() {
     () => ({
       timecard: {
         employee_name: employee,
-        week_start: weekStart,
-        week_end: weekEnd,
+
+        // Keep these empty so the backend
+        // remains compatible.
+        week_start: '',
+        week_end: '',
+
         rows,
       },
 
       overtime: {
         mode: otMode,
-        daily_threshold: dailyThreshold,
-        weekly_threshold: weeklyThreshold,
-        custom_threshold: weeklyThreshold,
+        daily_threshold:
+          dailyThreshold,
+        weekly_threshold:
+          weeklyThreshold,
+        custom_threshold:
+          weeklyThreshold,
       },
 
       holiday_in_regular: false,
@@ -205,8 +227,6 @@ export default function Home() {
     }),
     [
       employee,
-      weekStart,
-      weekEnd,
       rows,
       otMode,
       dailyThreshold,
@@ -226,6 +246,7 @@ export default function Home() {
       .pop()
 
     try {
+      // OCR for PDF / JPG / JPEG / PNG
       if (
         ['pdf', 'jpg', 'jpeg', 'png'].includes(
           ext || ''
@@ -238,7 +259,10 @@ export default function Home() {
         const text =
           await runBrowserOcr(file)
 
-        console.log('OCR TEXT:', text)
+        console.log(
+          'OCR TEXT:',
+          text
+        )
 
         if (
           !text ||
@@ -254,27 +278,33 @@ export default function Home() {
         const parsed =
           parseBasicOcr(text)
 
+        console.log(
+          'PARSED OCR:',
+          parsed
+        )
+
         if (parsed.employee_name) {
           setEmployee(
             parsed.employee_name
           )
         }
 
-        if (parsed.week_end) {
-          setWeekEnd(
-            parsed.week_end
-          )
-        }
-
         setMessage(
-          'OCR completed. Employee information was detected. Please review the remaining time entries manually.'
+          parsed.employee_name
+            ? 'OCR completed. Employee name was detected. Please review the remaining time entries manually.'
+            : 'OCR completed, but the employee name could not be identified. Please enter it manually.'
         )
 
         return
       }
 
+      // CSV / XLSX use backend extraction
       const form = new FormData()
-      form.append('file', file)
+
+      form.append(
+        'file',
+        file
+      )
 
       const response = await fetch(
         `${API}/extract`,
@@ -296,14 +326,6 @@ export default function Home() {
 
       setEmployee(
         data.employee_name || ''
-      )
-
-      setWeekStart(
-        data.week_start || ''
-      )
-
-      setWeekEnd(
-        data.week_end || ''
       )
 
       setRows(
@@ -334,11 +356,15 @@ export default function Home() {
         `${API}/calculate`,
         {
           method: 'POST',
+
           headers: {
             'Content-Type':
               'application/json',
           },
-          body: JSON.stringify(payload),
+
+          body: JSON.stringify(
+            payload
+          ),
         }
       )
 
@@ -352,8 +378,13 @@ export default function Home() {
         )
       }
 
-      setRows(data.rows || rows)
-      setSummary(data.summary)
+      setRows(
+        data.rows || rows
+      )
+
+      setSummary(
+        data.summary
+      )
     } catch (error: any) {
       setMessage(
         error?.message ||
@@ -368,11 +399,15 @@ export default function Home() {
         `${API}/export/csv`,
         {
           method: 'POST',
+
           headers: {
             'Content-Type':
               'application/json',
           },
-          body: JSON.stringify(payload),
+
+          body: JSON.stringify(
+            payload
+          ),
         }
       )
 
@@ -392,6 +427,7 @@ export default function Home() {
         document.createElement('a')
 
       link.href = url
+
       link.download =
         'timecard-summary.csv'
 
@@ -406,6 +442,20 @@ export default function Home() {
     }
   }
 
+  function reset() {
+    setEmployee('')
+    setRows([emptyRow()])
+    setSummary(null)
+    setMessage('')
+    setOtMode('none')
+    setDailyThreshold(8)
+    setWeeklyThreshold(40)
+
+    if (fileRef.current) {
+      fileRef.current.value = ''
+    }
+  }
+
   return (
     <main className="wrap">
       <nav className="nav">
@@ -414,7 +464,8 @@ export default function Home() {
         </div>
 
         <div>
-          Privacy-first • No account required
+          Privacy-first • No account
+          required
         </div>
       </nav>
 
@@ -472,6 +523,7 @@ export default function Home() {
       <section className="steps">
         <div className="step">
           <b>1. Upload</b>
+
           <p>
             PDF, Excel, CSV, JPG,
             JPEG or PNG.
@@ -480,6 +532,7 @@ export default function Home() {
 
         <div className="step">
           <b>2. Review</b>
+
           <p>
             Confirm extracted values.
             We never guess uncertain
@@ -489,6 +542,7 @@ export default function Home() {
 
         <div className="step">
           <b>3. Calculate</b>
+
           <p>
             Normal, overnight and
             break-deducted shifts.
@@ -497,6 +551,7 @@ export default function Home() {
 
         <div className="step">
           <b>4. Export</b>
+
           <p>
             Download, print or copy
             your summary.
@@ -518,55 +573,19 @@ export default function Home() {
           </div>
         )}
 
-        <div className="grid2">
-          <div className="field">
-            <label>
-              Employee Name
-            </label>
+        <div className="field">
+          <label>
+            Employee Name
+          </label>
 
-            <input
-              value={employee}
-              onChange={(e) =>
-                setEmployee(
-                  e.target.value
-                )
-              }
-            />
-          </div>
-
-          <div />
-
-          <div className="field">
-            <label>
-              Week Start
-            </label>
-
-            <input
-              type="date"
-              value={weekStart}
-              onChange={(e) =>
-                setWeekStart(
-                  e.target.value
-                )
-              }
-            />
-          </div>
-
-          <div className="field">
-            <label>
-              Week End
-            </label>
-
-            <input
-              type="date"
-              value={weekEnd}
-              onChange={(e) =>
-                setWeekEnd(
-                  e.target.value
-                )
-              }
-            />
-          </div>
+          <input
+            value={employee}
+            onChange={(e) =>
+              setEmployee(
+                e.target.value
+              )
+            }
+          />
         </div>
 
         <h3>
@@ -607,8 +626,7 @@ export default function Home() {
 
           <div className="field">
             <label>
-              {otMode ===
-              'daily'
+              {otMode === 'daily'
                 ? 'Daily threshold'
                 : 'Weekly/custom threshold'}
             </label>
@@ -617,8 +635,7 @@ export default function Home() {
               type="number"
               step="0.25"
               value={
-                otMode ===
-                'daily'
+                otMode === 'daily'
                   ? dailyThreshold
                   : weeklyThreshold
               }
@@ -629,8 +646,7 @@ export default function Home() {
                   )
 
                 if (
-                  otMode ===
-                  'daily'
+                  otMode === 'daily'
                 ) {
                   setDailyThreshold(
                     value
@@ -651,10 +667,10 @@ export default function Home() {
             fontSize: 13,
           }}
         >
-          Overtime rules vary by employer,
-          facility, contract and
-          jurisdiction. Choose the rule that
-          applies to you.
+          Overtime rules vary by
+          employer, facility, contract
+          and jurisdiction. Choose the
+          rule that applies to you.
         </p>
 
         <div className="tableWrap">
@@ -930,16 +946,7 @@ export default function Home() {
 
           <button
             className="btn secondary"
-            onClick={() => {
-              setRows([
-                emptyRow(),
-              ])
-              setSummary(null)
-              setEmployee('')
-              setWeekStart('')
-              setWeekEnd('')
-              setMessage('')
-            }}
+            onClick={reset}
           >
             Reset
           </button>
@@ -949,19 +956,14 @@ export default function Home() {
       {summary && (
         <section className="card">
           <h2>
-            Weekly summary
+            Summary
           </h2>
 
           <p>
             <b>
               {employee ||
                 'Employee'}
-            </b>{' '}
-
-            {weekStart ||
-            weekEnd
-              ? `• ${weekStart} – ${weekEnd}`
-              : ''}
+            </b>
           </p>
 
           <div className="summary">
@@ -1005,9 +1007,7 @@ export default function Home() {
                   <strong>
                     {Number(
                       value
-                    ).toFixed(
-                      2
-                    )}
+                    ).toFixed(2)}
                   </strong>
                 </div>
               )
@@ -1037,9 +1037,9 @@ export default function Home() {
               className="btn secondary"
               onClick={() =>
                 navigator.clipboard.writeText(
-                  `Employee: ${employee}\nWeek: ${weekStart} - ${weekEnd}\nTotal Hours: ${summary.total_hours.toFixed(
-                    2
-                  )}`
+                  `Employee: ${employee}\nTotal Hours: ${Number(
+                    summary.total_hours
+                  ).toFixed(2)}`
                 )
               }
             >
