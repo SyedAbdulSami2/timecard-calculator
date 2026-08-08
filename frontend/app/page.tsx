@@ -14,12 +14,11 @@ type Row = {
   on_call_hours: number
   call_back_hours: number
   total_hours: number
-  warning?: string
 }
 
-const emptyRow = (): Row => ({
+const emptyRow = (day = ''): Row => ({
   date: '',
-  day: '',
+  day,
   clock_in: '',
   clock_out: '',
   break_minutes: 0,
@@ -31,475 +30,285 @@ const emptyRow = (): Row => ({
   total_hours: 0,
 })
 
+const defaultRows = () => [
+  emptyRow('Monday'),
+  emptyRow('Tuesday'),
+  emptyRow('Wednesday'),
+  emptyRow('Thursday'),
+  emptyRow('Friday'),
+  emptyRow('Saturday'),
+  emptyRow('Sunday'),
+]
+
 const API =
   process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-function enhanceCanvas(
-  source: CanvasImageSource,
-  sourceWidth: number,
-  sourceHeight: number,
-  cropTop = 0,
-  cropHeight = 1
-) {
-  const top = Math.floor(sourceHeight * cropTop)
-  const height = Math.floor(sourceHeight * cropHeight)
+function parseTime(value: string): number | null {
+  if (!value.trim()) return null
 
-  const scale = 2
+  let text = value.trim().toUpperCase().replace(/\./g, ':')
 
-  const canvas = document.createElement('canvas')
+  const meridiem = text.match(/\b(AM|PM)\b/)?.[1]
 
-  canvas.width = sourceWidth * scale
-  canvas.height = height * scale
+  text = text.replace(/\s*(AM|PM)\s*/g, '')
 
-  const ctx = canvas.getContext('2d')
+  let hours = 0
+  let minutes = 0
 
-  if (!ctx) {
-    throw new Error('Could not prepare image for OCR.')
-  }
+  if (text.includes(':')) {
+    const parts = text.split(':')
 
-  ctx.drawImage(
-    source,
-    0,
-    top,
-    sourceWidth,
-    height,
-    0,
-    0,
-    canvas.width,
-    canvas.height
-  )
+    hours = Number(parts[0])
+    minutes = Number(parts[1] || 0)
+  } else {
+    const digits = text.replace(/\D/g, '')
 
-  const image = ctx.getImageData(
-    0,
-    0,
-    canvas.width,
-    canvas.height
-  )
-
-  const pixels = image.data
-
-  // Grayscale + stronger contrast.
-  for (let i = 0; i < pixels.length; i += 4) {
-    const gray =
-      pixels[i] * 0.299 +
-      pixels[i + 1] * 0.587 +
-      pixels[i + 2] * 0.114
-
-    const contrast = 1.65
-
-    const adjusted =
-      (gray - 128) * contrast + 128
-
-    const value = Math.max(
-      0,
-      Math.min(255, adjusted)
-    )
-
-    pixels[i] = value
-    pixels[i + 1] = value
-    pixels[i + 2] = value
-  }
-
-  ctx.putImageData(image, 0, 0)
-
-  return canvas
-}
-
-async function ocrCanvas(
-  canvas: HTMLCanvasElement
-): Promise<string> {
-  const Tesseract = await import('tesseract.js')
-
-  const result = await Tesseract.recognize(
-    canvas,
-    'eng'
-  )
-
-  return result.data.text || ''
-}
-
-async function ocrImageFile(
-  file: File
-): Promise<string> {
-  const bitmap = await createImageBitmap(file)
-
-  try {
-    // Full page: best chance to detect employee name/header.
-    const fullCanvas = enhanceCanvas(
-      bitmap,
-      bitmap.width,
-      bitmap.height
-    )
-
-    const fullText = await ocrCanvas(fullCanvas)
-
-    // Middle of page: usually where time-entry rows are located.
-    const tableCanvas = enhanceCanvas(
-      bitmap,
-      bitmap.width,
-      bitmap.height,
-      0.18,
-      0.62
-    )
-
-    const tableText = await ocrCanvas(tableCanvas)
-
-    return `${fullText}\n${tableText}`.trim()
-  } finally {
-    bitmap.close()
-  }
-}
-
-async function ocrPdfFile(
-  file: File
-): Promise<string> {
-  const pdfjs = await import('pdfjs-dist')
-
-  pdfjs.GlobalWorkerOptions.workerSrc =
-    `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`
-
-  const data = new Uint8Array(
-    await file.arrayBuffer()
-  )
-
-  const pdf = await pdfjs.getDocument({
-    data,
-  }).promise
-
-  let allText = ''
-
-  for (
-    let pageNumber = 1;
-    pageNumber <= pdf.numPages;
-    pageNumber++
-  ) {
-    const page = await pdf.getPage(pageNumber)
-
-    const content = await page.getTextContent()
-
-    const embeddedText = content.items
-      .map((item: any) => item.str || '')
-      .join(' ')
-      .trim()
-
-    if (embeddedText.length > 100) {
-      allText += '\n' + embeddedText
-      continue
-    }
-
-    try {
-      const viewport = page.getViewport({
-        scale: 2,
-      })
-
-      const originalCanvas =
-        document.createElement('canvas')
-
-      originalCanvas.width = viewport.width
-      originalCanvas.height = viewport.height
-
-      const originalCtx =
-        originalCanvas.getContext('2d')
-
-      if (!originalCtx) continue
-
-      await page.render({
-        canvas: originalCanvas,
-        canvasContext: originalCtx,
-        viewport,
-      }).promise
-
-      const enhancedCanvas = enhanceCanvas(
-        originalCanvas,
-        originalCanvas.width,
-        originalCanvas.height
-      )
-
-      const text =
-        await ocrCanvas(enhancedCanvas)
-
-      allText += '\n' + text
-    } catch (error) {
-      console.warn(
-        'Could not OCR PDF page:',
-        error
-      )
+    if (digits.length <= 2) {
+      hours = Number(digits)
+    } else if (digits.length === 3) {
+      hours = Number(digits.slice(0, 1))
+      minutes = Number(digits.slice(1))
+    } else if (digits.length === 4) {
+      hours = Number(digits.slice(0, 2))
+      minutes = Number(digits.slice(2))
+    } else {
+      return null
     }
   }
-
-  return allText.trim()
-}
-
-async function runBrowserOcr(
-  file: File
-): Promise<string> {
-  const ext = file.name
-    .toLowerCase()
-    .split('.')
-    .pop()
 
   if (
-    ['jpg', 'jpeg', 'png'].includes(ext || '')
+    Number.isNaN(hours) ||
+    Number.isNaN(minutes) ||
+    minutes > 59
   ) {
-    return ocrImageFile(file)
+    return null
+  }
+
+  if (meridiem) {
+    if (hours === 12) hours = 0
+    if (meridiem === 'PM') hours += 12
+  }
+
+  if (hours > 23) return null
+
+  return hours * 60 + minutes
+}
+
+function calculateRow(row: Row): Row {
+  const start = parseTime(row.clock_in)
+  const end = parseTime(row.clock_out)
+
+  if (start === null || end === null) {
+    return {
+      ...row,
+      regular_hours: 0,
+      overtime_hours: 0,
+      total_hours: 0,
+    }
+  }
+
+  let workedMinutes = end - start
+
+  // Overnight shift
+  if (workedMinutes < 0) {
+    workedMinutes += 24 * 60
+  }
+
+  workedMinutes -= Number(row.break_minutes || 0)
+
+  if (workedMinutes < 0) workedMinutes = 0
+
+  const workedHours = workedMinutes / 60
+
+  return {
+    ...row,
+    regular_hours: workedHours,
+    overtime_hours: 0,
+    total_hours: workedHours,
+  }
+}
+
+function applyOvertime(
+  rows: Row[],
+  mode: string,
+  dailyThreshold: number,
+  weeklyThreshold: number
+) {
+  let weeklyRegularUsed = 0
+
+  return rows.map((row) => {
+    const base = calculateRow(row)
+
+    const hours = base.total_hours
+
+    let regular = hours
+    let overtime = 0
+
+    if (mode === 'daily') {
+      regular = Math.min(hours, dailyThreshold)
+      overtime = Math.max(0, hours - dailyThreshold)
+    }
+
+    if (mode === 'weekly' || mode === 'custom') {
+      const remainingRegular = Math.max(
+        0,
+        weeklyThreshold - weeklyRegularUsed
+      )
+
+      regular = Math.min(hours, remainingRegular)
+      overtime = Math.max(0, hours - remainingRegular)
+
+      weeklyRegularUsed += regular
+    }
+
+    return {
+      ...base,
+      regular_hours: regular,
+      overtime_hours: overtime,
+      total_hours: regular + overtime,
+    }
+  })
+}
+
+async function runBrowserOcr(file: File): Promise<string> {
+  const ext = file.name.toLowerCase().split('.').pop()
+
+  if (['jpg', 'jpeg', 'png'].includes(ext || '')) {
+    const Tesseract = await import('tesseract.js')
+
+    const result = await Tesseract.recognize(file, 'eng')
+
+    return result.data.text || ''
   }
 
   if (ext === 'pdf') {
-    return ocrPdfFile(file)
+    const pdfjs = await import('pdfjs-dist')
+
+    pdfjs.GlobalWorkerOptions.workerSrc =
+      `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`
+
+    const data = new Uint8Array(await file.arrayBuffer())
+
+    const pdf = await pdfjs.getDocument({ data }).promise
+
+    let allText = ''
+
+    for (
+      let pageNumber = 1;
+      pageNumber <= pdf.numPages;
+      pageNumber++
+    ) {
+      const page = await pdf.getPage(pageNumber)
+
+      const content = await page.getTextContent()
+
+      const embeddedText = content.items
+        .map((item: any) => item.str || '')
+        .join(' ')
+        .trim()
+
+      if (embeddedText.length > 40) {
+        allText += '\n' + embeddedText
+        continue
+      }
+
+      const viewport = page.getViewport({ scale: 2 })
+
+      const canvas = document.createElement('canvas')
+      const context = canvas.getContext('2d')
+
+      if (!context) continue
+
+      canvas.width = viewport.width
+      canvas.height = viewport.height
+
+      await page.render({
+        canvas,
+        canvasContext: context,
+        viewport,
+      }).promise
+
+      const Tesseract = await import('tesseract.js')
+
+      const result = await Tesseract.recognize(
+        canvas,
+        'eng'
+      )
+
+      allText += '\n' + (result.data.text || '')
+    }
+
+    return allText.trim()
   }
 
   return ''
 }
 
-function parseEmployeeName(text: string) {
+function parseEmployee(text: string) {
   const match = text.match(
     /Employee\s*Name\s*:\s*([^\n\r]+)/i
   )
 
   if (!match) return ''
 
-  let value = match[1].trim()
-
-  // Stop if another known label ended up on the same OCR line.
-  value = value.split(
-    /Agency\s*Name|Facility\s*(?:Name|Namo)|Week\s*Ending/i
-  )[0]
-
-  return value.trim()
-}
-
-function normalizeTime(value: string) {
-  let result = value
+  return match[1]
+    .split(/Agency\s*Name|Facility\s*(?:Name|Namo)|Week\s*Ending/i)[0]
     .trim()
-    .toUpperCase()
-    .replace(/\./g, ':')
-
-  result = result.replace(
-    /\s*(AM|PM)$/i,
-    ' $1'
-  )
-
-  return result
-}
-
-function dayFromDate(value: string) {
-  const match = value.match(
-    /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/
-  )
-
-  if (!match) return ''
-
-  let year = Number(match[3])
-
-  if (year < 100) {
-    year += 2000
-  }
-
-  const month = Number(match[1]) - 1
-  const day = Number(match[2])
-
-  const date = new Date(
-    year,
-    month,
-    day
-  )
-
-  if (Number.isNaN(date.getTime())) {
-    return ''
-  }
-
-  return date.toLocaleDateString(
-    'en-US',
-    {
-      weekday: 'short',
-    }
-  )
-}
-
-function parseTimeRows(
-  text: string
-): Row[] {
-  const lines = text
-    .replace(/\r/g, '')
-    .split('\n')
-    .map((line) =>
-      line
-        .replace(/[|[\]{}]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-    )
-    .filter(Boolean)
-
-  const rows: Row[] = []
-
-  const dateRegex =
-    /\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/
-
-  const dayRegex =
-    /\b(Sun(?:day)?|Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?|Sat(?:urday)?)\b/i
-
-  const timeRegex =
-    /\b(?:[01]?\d|2[0-3]):[0-5]\d\s*(?:AM|PM)?\b/gi
-
-  for (const line of lines) {
-    const dateMatch = line.match(dateRegex)
-
-    if (!dateMatch) {
-      continue
-    }
-
-    // Don't mistake signature dates for work rows.
-    if (
-      /signature|manager|supervisor|employee\s*name/i.test(
-        line
-      )
-    ) {
-      continue
-    }
-
-    const withoutDate = line.replace(
-      dateMatch[0],
-      ' '
-    )
-
-    const times =
-      withoutDate.match(timeRegex) || []
-
-    // Do not guess unless we clearly see
-    // at least clock-in and clock-out.
-    if (times.length < 2) {
-      continue
-    }
-
-    const dayMatch =
-      line.match(dayRegex)
-
-    const row: Row = {
-      ...emptyRow(),
-
-      date: dateMatch[1],
-
-      day:
-        dayMatch?.[1] ||
-        dayFromDate(dateMatch[1]),
-
-      clock_in:
-        normalizeTime(times[0]),
-
-      clock_out:
-        normalizeTime(
-          times[times.length - 1]
-        ),
-
-      warning:
-        times.length > 2
-          ? 'Multiple time values were detected. Please review this row.'
-          : undefined,
-    }
-
-    rows.push(row)
-  }
-
-  // Remove duplicate OCR rows.
-  const unique = new Map<string, Row>()
-
-  for (const row of rows) {
-    const key = [
-      row.date,
-      row.clock_in,
-      row.clock_out,
-    ].join('|')
-
-    if (!unique.has(key)) {
-      unique.set(key, row)
-    }
-  }
-
-  return Array.from(unique.values())
-}
-
-function parseOcr(text: string) {
-  return {
-    employee_name:
-      parseEmployeeName(text),
-
-    rows:
-      parseTimeRows(text),
-  }
 }
 
 export default function Home() {
-  const [employee, setEmployee] =
-    useState('')
+  const [employee, setEmployee] = useState('')
+  const [rows, setRows] = useState<Row[]>(defaultRows())
 
-  const [rows, setRows] =
-    useState<Row[]>([
-      emptyRow(),
-    ])
+  const [otMode, setOtMode] = useState('none')
+  const [dailyThreshold, setDailyThreshold] = useState(8)
+  const [weeklyThreshold, setWeeklyThreshold] = useState(40)
 
-  const [otMode, setOtMode] =
-    useState('none')
+  const [message, setMessage] = useState('')
+  const [summary, setSummary] = useState<any>(null)
 
-  const [
-    dailyThreshold,
-    setDailyThreshold,
-  ] = useState(8)
+  const fileRef = useRef<HTMLInputElement>(null)
 
-  const [
-    weeklyThreshold,
-    setWeeklyThreshold,
-  ] = useState(40)
+  const calculatedRows = useMemo(
+    () =>
+      applyOvertime(
+        rows,
+        otMode,
+        dailyThreshold,
+        weeklyThreshold
+      ),
+    [rows, otMode, dailyThreshold, weeklyThreshold]
+  )
 
-  const [message, setMessage] =
-    useState('')
-
-  const [summary, setSummary] =
-    useState<any>(null)
-
-  const fileRef =
-    useRef<HTMLInputElement>(null)
-
-  const update = (
-    index: number,
-    key: keyof Row,
-    value: any
-  ) => {
-    setRows((current) =>
-      current.map(
-        (row, rowIndex) =>
-          rowIndex === index
-            ? {
-                ...row,
-                [key]: value,
-              }
-            : row
-      )
+  const totals = useMemo(() => {
+    return calculatedRows.reduce(
+      (total, row) => ({
+        regular: total.regular + row.regular_hours,
+        overtime: total.overtime + row.overtime_hours,
+        total: total.total + row.total_hours,
+      }),
+      {
+        regular: 0,
+        overtime: 0,
+        total: 0,
+      }
     )
-  }
+  }, [calculatedRows])
 
   const payload = useMemo(
     () => ({
       timecard: {
         employee_name: employee,
-
-        // Backend compatibility.
         week_start: '',
         week_end: '',
-
-        rows,
+        rows: calculatedRows,
       },
 
       overtime: {
         mode: otMode,
-
-        daily_threshold:
-          dailyThreshold,
-
-        weekly_threshold:
-          weeklyThreshold,
-
-        custom_threshold:
-          weeklyThreshold,
+        daily_threshold: dailyThreshold,
+        weekly_threshold: weeklyThreshold,
+        custom_threshold: weeklyThreshold,
       },
 
       holiday_in_regular: false,
@@ -508,282 +317,182 @@ export default function Home() {
     }),
     [
       employee,
-      rows,
+      calculatedRows,
       otMode,
       dailyThreshold,
       weeklyThreshold,
     ]
   )
 
-  async function upload(
-    file?: File
+  function updateRow(
+    index: number,
+    key: keyof Row,
+    value: any
   ) {
+    setRows((current) =>
+      current.map((row, rowIndex) =>
+        rowIndex === index
+          ? {
+              ...row,
+              [key]: value,
+            }
+          : row
+      )
+    )
+  }
+
+  async function upload(file?: File) {
     if (!file) return
 
-    setSummary(null)
+    setMessage('Reading timecard…')
 
-    setMessage(
-      'Reading timecard…'
-    )
-
-    const ext = file.name
-      .toLowerCase()
-      .split('.')
-      .pop()
+    const ext = file.name.toLowerCase().split('.').pop()
 
     try {
       if (
-        ['pdf', 'jpg', 'jpeg', 'png'].includes(
-          ext || ''
-        )
+        ['pdf', 'jpg', 'jpeg', 'png'].includes(ext || '')
       ) {
         setMessage(
-          'Enhancing image and reading timecard with OCR. This can take several seconds…'
+          'Reading timecard with OCR. This can take several seconds…'
         )
 
-        const text =
-          await runBrowserOcr(file)
+        const text = await runBrowserOcr(file)
 
-        console.log(
-          'OCR TEXT:',
-          text
-        )
+        console.log('OCR TEXT:', text)
 
-        if (
-          !text ||
-          text.trim().length < 10
-        ) {
+        if (!text || text.trim().length < 10) {
           setMessage(
-            "We couldn't confidently read this timecard. Please enter or correct the information manually."
+            "We couldn't confidently read this timecard. Please enter the information manually."
           )
 
           return
         }
 
-        const parsed =
-          parseOcr(text)
+        const name = parseEmployee(text)
 
-        console.log(
-          'PARSED OCR:',
-          parsed
-        )
+        if (name) {
+          setEmployee(name)
 
-        if (
-          parsed.employee_name
-        ) {
-          setEmployee(
-            parsed.employee_name
-          )
-        }
-
-        if (
-          parsed.rows.length > 0
-        ) {
-          setRows(
-            parsed.rows
-          )
-        } else {
-          setRows([
-            emptyRow(),
-          ])
-        }
-
-        if (
-          parsed.employee_name &&
-          parsed.rows.length > 0
-        ) {
           setMessage(
-            `OCR completed. Employee name and ${parsed.rows.length} time row(s) were detected. Please review every value before calculating.`
-          )
-        } else if (
-          parsed.employee_name
-        ) {
-          setMessage(
-            'OCR completed. Employee name was detected, but the time rows were not clear enough to fill automatically. Please enter or correct them manually.'
-          )
-        } else if (
-          parsed.rows.length > 0
-        ) {
-          setMessage(
-            `OCR completed. ${parsed.rows.length} time row(s) were detected. Please enter the employee name and review every value.`
+            'OCR completed. Employee name was detected. Please review and enter the daily time entries.'
           )
         } else {
           setMessage(
-            'OCR completed, but the document was not clear enough to identify the employee name or time rows confidently.'
+            'OCR completed, but the employee name was not clear. Please enter it manually.'
           )
         }
 
         return
       }
 
-      // CSV / XLSX
-      const form =
-        new FormData()
+      const form = new FormData()
+      form.append('file', file)
 
-      form.append(
-        'file',
-        file
-      )
+      const response = await fetch(`${API}/extract`, {
+        method: 'POST',
+        body: form,
+      })
 
-      const response =
-        await fetch(
-          `${API}/extract`,
-          {
-            method: 'POST',
-            body: form,
-          }
-        )
-
-      const data =
-        await response.json()
+      const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(
-          data.detail ||
-            'Upload failed'
-        )
+        throw new Error(data.detail || 'Upload failed')
       }
 
-      setEmployee(
-        data.employee_name || ''
-      )
+      setEmployee(data.employee_name || '')
 
-      setRows(
-        data.rows?.length
-          ? data.rows
-          : [emptyRow()]
-      )
+      if (data.rows?.length) {
+        setRows(data.rows)
+      }
 
       setMessage(
         data.warnings?.[0] ||
-          'Extraction complete. Review all fields before calculating.'
+          'Extraction complete. Please review all values.'
       )
     } catch (error: any) {
       console.error(error)
 
       setMessage(
-        error?.message ||
-          'Could not read file'
+        error?.message || 'Could not read timecard.'
       )
     }
   }
 
-  async function calculate() {
+  async function calculateWithBackend() {
     setMessage('')
 
     try {
-      const response =
-        await fetch(
-          `${API}/calculate`,
-          {
-            method: 'POST',
+      const response = await fetch(`${API}/calculate`, {
+        method: 'POST',
 
-            headers: {
-              'Content-Type':
-                'application/json',
-            },
+        headers: {
+          'Content-Type': 'application/json',
+        },
 
-            body:
-              JSON.stringify(
-                payload
-              ),
-          }
-        )
+        body: JSON.stringify(payload),
+      })
 
-      const data =
-        await response.json()
+      const data = await response.json()
 
       if (!response.ok) {
         throw new Error(
-          data.detail ||
-            'Calculation failed'
+          data.detail || 'Calculation failed'
         )
       }
 
-      setRows(
-        data.rows || rows
-      )
-
-      setSummary(
-        data.summary
-      )
+      setSummary(data.summary)
     } catch (error: any) {
       setMessage(
-        error?.message ||
-          'Could not calculate hours'
+        error?.message || 'Could not calculate hours'
       )
     }
   }
 
   async function downloadCsv() {
     try {
-      const response =
-        await fetch(
-          `${API}/export/csv`,
-          {
-            method: 'POST',
+      const response = await fetch(`${API}/export/csv`, {
+        method: 'POST',
 
-            headers: {
-              'Content-Type':
-                'application/json',
-            },
+        headers: {
+          'Content-Type': 'application/json',
+        },
 
-            body:
-              JSON.stringify(
-                payload
-              ),
-          }
-        )
+        body: JSON.stringify(payload),
+      })
 
       if (!response.ok) {
-        throw new Error(
-          'Could not export CSV'
-        )
+        throw new Error('Could not export CSV')
       }
 
-      const blob =
-        await response.blob()
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
 
-      const url =
-        URL.createObjectURL(
-          blob
-        )
-
-      const link =
-        document.createElement(
-          'a'
-        )
+      const link = document.createElement('a')
 
       link.href = url
-
-      link.download =
-        'timecard-summary.csv'
+      link.download = 'timecard-summary.csv'
 
       link.click()
 
-      URL.revokeObjectURL(
-        url
-      )
+      URL.revokeObjectURL(url)
     } catch (error: any) {
       setMessage(
-        error?.message ||
-          'Could not export CSV'
+        error?.message || 'Could not export CSV'
       )
     }
   }
 
   function reset() {
     setEmployee('')
-    setRows([emptyRow()])
-    setSummary(null)
-    setMessage('')
+    setRows(defaultRows())
     setOtMode('none')
     setDailyThreshold(8)
     setWeeklyThreshold(40)
+    setMessage('')
+    setSummary(null)
 
     if (fileRef.current) {
-      fileRef.current.value =
-        ''
+      fileRef.current.value = ''
     }
   }
 
@@ -800,22 +509,17 @@ export default function Home() {
       </nav>
 
       <section className="hero">
-        <h1>
-          TimeCard Calculator
-        </h1>
+        <h1>TimeCard Calculator</h1>
 
         <p>
-          Upload your timecard and
-          automatically calculate your
-          daily and weekly hours.
+          Upload a timecard or enter your hours manually.
+          Daily and weekly totals update automatically.
         </p>
 
         <div className="actions">
           <button
             className="btn primary"
-            onClick={() =>
-              fileRef.current?.click()
-            }
+            onClick={() => fileRef.current?.click()}
           >
             Upload Timecard
           </button>
@@ -824,12 +528,9 @@ export default function Home() {
             className="btn secondary"
             onClick={() =>
               document
-                .getElementById(
-                  'review'
-                )
+                .getElementById('review')
                 ?.scrollIntoView({
-                  behavior:
-                    'smooth',
+                  behavior: 'smooth',
                 })
             }
           >
@@ -841,61 +542,15 @@ export default function Home() {
             hidden
             type="file"
             accept=".pdf,.xlsx,.csv,.jpg,.jpeg,.png"
-            onChange={(e) =>
-              upload(
-                e.target.files?.[0]
-              )
+            onChange={(event) =>
+              upload(event.target.files?.[0])
             }
           />
         </div>
       </section>
 
-      <section className="steps">
-        <div className="step">
-          <b>1. Upload</b>
-
-          <p>
-            PDF, Excel, CSV, JPG,
-            JPEG or PNG.
-          </p>
-        </div>
-
-        <div className="step">
-          <b>2. Review</b>
-
-          <p>
-            Confirm extracted values.
-            We never guess uncertain
-            data.
-          </p>
-        </div>
-
-        <div className="step">
-          <b>3. Calculate</b>
-
-          <p>
-            Normal, overnight and
-            break-deducted shifts.
-          </p>
-        </div>
-
-        <div className="step">
-          <b>4. Export</b>
-
-          <p>
-            Download, print or copy
-            your summary.
-          </p>
-        </div>
-      </section>
-
-      <section
-        className="card"
-        id="review"
-      >
-        <h2>
-          Timecard review
-        </h2>
+      <section className="card" id="review">
+        <h2>Timecard review</h2>
 
         {message && (
           <div className="notice">
@@ -904,36 +559,120 @@ export default function Home() {
         )}
 
         <div className="field">
-          <label>
-            Employee Name
-          </label>
+          <label>Employee Name</label>
 
           <input
             value={employee}
-            onChange={(e) =>
-              setEmployee(
-                e.target.value
-              )
+            onChange={(event) =>
+              setEmployee(event.target.value)
             }
           />
         </div>
 
-        <h3>
-          Overtime settings
-        </h3>
+        <h3>Time entries</h3>
+
+        <div className="tableWrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Day</th>
+                <th>Clock In</th>
+                <th>Clock Out</th>
+                <th>Break (min)</th>
+                <th>Regular</th>
+                <th>OT</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {calculatedRows.map((row, index) => (
+                <tr key={index}>
+                  <td>
+                    <input
+                      value={row.day}
+                      onChange={(event) =>
+                        updateRow(
+                          index,
+                          'day',
+                          event.target.value
+                        )
+                      }
+                    />
+                  </td>
+
+                  <td>
+                    <input
+                      value={rows[index].clock_in}
+                      placeholder="8:30 AM"
+                      onChange={(event) =>
+                        updateRow(
+                          index,
+                          'clock_in',
+                          event.target.value
+                        )
+                      }
+                    />
+                  </td>
+
+                  <td>
+                    <input
+                      value={rows[index].clock_out}
+                      placeholder="5:00 PM"
+                      onChange={(event) =>
+                        updateRow(
+                          index,
+                          'clock_out',
+                          event.target.value
+                        )
+                      }
+                    />
+                  </td>
+
+                  <td>
+                    <input
+                      type="number"
+                      min="0"
+                      value={rows[index].break_minutes}
+                      onChange={(event) =>
+                        updateRow(
+                          index,
+                          'break_minutes',
+                          Number(event.target.value)
+                        )
+                      }
+                    />
+                  </td>
+
+                  <td>
+                    {row.regular_hours.toFixed(2)}
+                  </td>
+
+                  <td>
+                    {row.overtime_hours.toFixed(2)}
+                  </td>
+
+                  <td>
+                    <b>
+                      {row.total_hours.toFixed(2)}
+                    </b>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Overtime settings</h3>
 
         <div className="grid2">
           <div className="field">
-            <label>
-              Rule
-            </label>
+            <label>Rule</label>
 
             <select
               value={otMode}
-              onChange={(e) =>
-                setOtMode(
-                  e.target.value
-                )
+              onChange={(event) =>
+                setOtMode(event.target.value)
               }
             >
               <option value="none">
@@ -969,23 +708,15 @@ export default function Home() {
                   ? dailyThreshold
                   : weeklyThreshold
               }
-              onChange={(e) => {
-                const value =
-                  Number(
-                    e.target.value
-                  )
+              onChange={(event) => {
+                const value = Number(
+                  event.target.value
+                )
 
-                if (
-                  otMode ===
-                  'daily'
-                ) {
-                  setDailyThreshold(
-                    value
-                  )
+                if (otMode === 'daily') {
+                  setDailyThreshold(value)
                 } else {
-                  setWeeklyThreshold(
-                    value
-                  )
+                  setWeeklyThreshold(value)
                 }
               }}
             />
@@ -998,268 +729,54 @@ export default function Home() {
             fontSize: 13,
           }}
         >
-          Overtime rules vary by employer,
-          facility, contract and jurisdiction.
-          Choose the rule that applies to you.
+          Overtime rules vary by employer, contract,
+          facility and jurisdiction. Select the rule
+          that applies to you.
         </p>
 
-        <div className="tableWrap">
-          <table>
-            <thead>
-              <tr>
-                {[
-                  'Date',
-                  'Day',
-                  'Clock In',
-                  'Clock Out',
-                  'Break',
-                  'Regular',
-                  'OT',
-                  'Holiday',
-                  'On-Call',
-                  'Call-Back',
-                  'Total',
-                  '',
-                ].map((label) => (
-                  <th key={label}>
-                    {label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
+        <div className="summary">
+          <div className="metric">
+            <span>Regular</span>
+            <strong>
+              {totals.regular.toFixed(2)}
+            </strong>
+          </div>
 
-            <tbody>
-              {rows.map(
-                (row, index) => (
-                  <tr key={index}>
-                    <td>
-                      <input
-                        value={
-                          row.date
-                        }
-                        onChange={(e) =>
-                          update(
-                            index,
-                            'date',
-                            e.target.value
-                          )
-                        }
-                      />
-                    </td>
+          <div className="metric">
+            <span>Overtime</span>
+            <strong>
+              {totals.overtime.toFixed(2)}
+            </strong>
+          </div>
 
-                    <td>
-                      <input
-                        value={
-                          row.day
-                        }
-                        onChange={(e) =>
-                          update(
-                            index,
-                            'day',
-                            e.target.value
-                          )
-                        }
-                      />
-                    </td>
-
-                    <td>
-                      <input
-                        value={
-                          row.clock_in
-                        }
-                        placeholder="7:00 AM"
-                        onChange={(e) =>
-                          update(
-                            index,
-                            'clock_in',
-                            e.target.value
-                          )
-                        }
-                      />
-                    </td>
-
-                    <td>
-                      <input
-                        value={
-                          row.clock_out
-                        }
-                        placeholder="7:30 PM"
-                        onChange={(e) =>
-                          update(
-                            index,
-                            'clock_out',
-                            e.target.value
-                          )
-                        }
-                      />
-                    </td>
-
-                    <td>
-                      <input
-                        type="number"
-                        value={
-                          row.break_minutes
-                        }
-                        onChange={(e) =>
-                          update(
-                            index,
-                            'break_minutes',
-                            Number(
-                              e.target.value
-                            )
-                          )
-                        }
-                      />
-                    </td>
-
-                    <td>
-                      <input
-                        type="number"
-                        step="0.25"
-                        value={
-                          row.regular_hours
-                        }
-                        onChange={(e) =>
-                          update(
-                            index,
-                            'regular_hours',
-                            Number(
-                              e.target.value
-                            )
-                          )
-                        }
-                      />
-                    </td>
-
-                    <td>
-                      <input
-                        type="number"
-                        step="0.25"
-                        value={
-                          row.overtime_hours
-                        }
-                        onChange={(e) =>
-                          update(
-                            index,
-                            'overtime_hours',
-                            Number(
-                              e.target.value
-                            )
-                          )
-                        }
-                      />
-                    </td>
-
-                    <td>
-                      <input
-                        type="number"
-                        step="0.25"
-                        value={
-                          row.holiday_hours
-                        }
-                        onChange={(e) =>
-                          update(
-                            index,
-                            'holiday_hours',
-                            Number(
-                              e.target.value
-                            )
-                          )
-                        }
-                      />
-                    </td>
-
-                    <td>
-                      <input
-                        type="number"
-                        step="0.25"
-                        value={
-                          row.on_call_hours
-                        }
-                        onChange={(e) =>
-                          update(
-                            index,
-                            'on_call_hours',
-                            Number(
-                              e.target.value
-                            )
-                          )
-                        }
-                      />
-                    </td>
-
-                    <td>
-                      <input
-                        type="number"
-                        step="0.25"
-                        value={
-                          row.call_back_hours
-                        }
-                        onChange={(e) =>
-                          update(
-                            index,
-                            'call_back_hours',
-                            Number(
-                              e.target.value
-                            )
-                          )
-                        }
-                      />
-                    </td>
-
-                    <td>
-                      {row.total_hours?.toFixed?.(
-                        2
-                      ) || '0.00'}
-                    </td>
-
-                    <td>
-                      <button
-                        className="btn secondary"
-                        onClick={() =>
-                          setRows(
-                            (current) =>
-                              current.filter(
-                                (
-                                  _,
-                                  rowIndex
-                                ) =>
-                                  rowIndex !==
-                                  index
-                              )
-                          )
-                        }
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                )
-              )}
-            </tbody>
-          </table>
+          <div className="metric">
+            <span>Total</span>
+            <strong>
+              {totals.total.toFixed(2)}
+            </strong>
+          </div>
         </div>
 
         <div className="actions">
           <button
-            className="btn secondary"
-            onClick={() =>
-              setRows(
-                (current) => [
-                  ...current,
-                  emptyRow(),
-                ]
-              )
-            }
+            className="btn primary"
+            onClick={calculateWithBackend}
           >
-            + Add Row
+            Finalize Calculation
           </button>
 
           <button
-            className="btn primary"
-            onClick={calculate}
+            className="btn secondary"
+            onClick={downloadCsv}
           >
-            Calculate Hours
+            Download CSV
+          </button>
+
+          <button
+            className="btn secondary"
+            onClick={() => window.print()}
+          >
+            Print
           </button>
 
           <button
@@ -1273,115 +790,58 @@ export default function Home() {
 
       {summary && (
         <section className="card">
-          <h2>
-            Summary
-          </h2>
+          <h2>Final summary</h2>
 
           <p>
-            <b>
-              {employee ||
-                'Employee'}
-            </b>
+            <b>{employee || 'Employee'}</b>
           </p>
 
           <div className="summary">
-            {[
-              [
-                'Regular',
-                summary.regular_hours,
-              ],
-              [
-                'Overtime',
-                summary.overtime_hours,
-              ],
-              [
-                'Holiday',
-                summary.holiday_hours,
-              ],
-              [
-                'On-Call',
-                summary.on_call_hours,
-              ],
-              [
-                'Call-Back',
-                summary.call_back_hours,
-              ],
-              [
-                'TOTAL',
-                summary.total_hours,
-              ],
-            ].map(
-              ([label, value]) => (
-                <div
-                  className="metric"
-                  key={String(label)}
-                >
-                  <span>
-                    {label}
-                  </span>
+            <div className="metric">
+              <span>Regular</span>
 
-                  <strong>
-                    {Number(
-                      value
-                    ).toFixed(2)}
-                  </strong>
-                </div>
-              )
-            )}
-          </div>
+              <strong>
+                {Number(
+                  summary.regular_hours
+                ).toFixed(2)}
+              </strong>
+            </div>
 
-          <div className="actions">
-            <button
-              className="btn primary"
-              onClick={downloadCsv}
-            >
-              Download CSV
-            </button>
+            <div className="metric">
+              <span>Overtime</span>
 
-            <button
-              className="btn secondary"
-              onClick={() =>
-                window.print()
-              }
-            >
-              Print
-            </button>
+              <strong>
+                {Number(
+                  summary.overtime_hours
+                ).toFixed(2)}
+              </strong>
+            </div>
 
-            <button
-              className="btn secondary"
-              onClick={() =>
-                navigator.clipboard.writeText(
-                  `Employee: ${employee}\nTotal Hours: ${Number(
-                    summary.total_hours
-                  ).toFixed(2)}`
-                )
-              }
-            >
-              Copy Summary
-            </button>
+            <div className="metric">
+              <span>Total</span>
+
+              <strong>
+                {Number(
+                  summary.total_hours
+                ).toFixed(2)}
+              </strong>
+            </div>
           </div>
         </section>
       )}
 
       <section className="card">
-        <h2>
-          Privacy & trust
-        </h2>
+        <h2>Privacy & trust</h2>
 
         <p>
-          No account is required for the
-          MVP. Uploaded documents are
-          processed temporarily. The
-          application is designed to flag
-          uncertain data for manual review
-          instead of inventing values.
+          No account is required. Uploaded documents
+          are processed temporarily. Review extracted
+          values before relying on the final result.
         </p>
       </section>
 
       <footer className="footer">
-        TimeCard Calculator MVP • Add a
-        reviewed Privacy Policy and Terms
-        of Use before public launch.
+        TimeCard Calculator MVP
       </footer>
     </main>
   )
