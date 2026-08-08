@@ -34,130 +34,408 @@ const emptyRow = (): Row => ({
 const API =
   process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
-async function runBrowserOcr(file: File): Promise<string> {
-  const ext = file.name.toLowerCase().split('.').pop()
+function enhanceCanvas(
+  source: CanvasImageSource,
+  sourceWidth: number,
+  sourceHeight: number,
+  cropTop = 0,
+  cropHeight = 1
+) {
+  const top = Math.floor(sourceHeight * cropTop)
+  const height = Math.floor(sourceHeight * cropHeight)
 
-  // JPG / JPEG / PNG
-  if (['jpg', 'jpeg', 'png'].includes(ext || '')) {
-    const Tesseract = await import('tesseract.js')
+  const scale = 2
 
-    const result = await Tesseract.recognize(
-      file,
-      'eng'
-    )
+  const canvas = document.createElement('canvas')
 
-    return result.data.text || ''
+  canvas.width = sourceWidth * scale
+  canvas.height = height * scale
+
+  const ctx = canvas.getContext('2d')
+
+  if (!ctx) {
+    throw new Error('Could not prepare image for OCR.')
   }
 
-  // PDF
-  if (ext === 'pdf') {
-    const pdfjs = await import('pdfjs-dist')
+  ctx.drawImage(
+    source,
+    0,
+    top,
+    sourceWidth,
+    height,
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  )
 
-    pdfjs.GlobalWorkerOptions.workerSrc =
-      `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`
+  const image = ctx.getImageData(
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  )
 
-    const data = new Uint8Array(
-      await file.arrayBuffer()
+  const pixels = image.data
+
+  // Grayscale + stronger contrast.
+  for (let i = 0; i < pixels.length; i += 4) {
+    const gray =
+      pixels[i] * 0.299 +
+      pixels[i + 1] * 0.587 +
+      pixels[i + 2] * 0.114
+
+    const contrast = 1.65
+
+    const adjusted =
+      (gray - 128) * contrast + 128
+
+    const value = Math.max(
+      0,
+      Math.min(255, adjusted)
     )
 
-    const pdf = await pdfjs.getDocument({
-      data,
-    }).promise
+    pixels[i] = value
+    pixels[i + 1] = value
+    pixels[i + 2] = value
+  }
 
-    let allText = ''
+  ctx.putImageData(image, 0, 0)
 
-    for (
-      let pageNumber = 1;
-      pageNumber <= pdf.numPages;
-      pageNumber++
-    ) {
-      const page = await pdf.getPage(pageNumber)
+  return canvas
+}
 
-      // Try embedded PDF text first
-      const content = await page.getTextContent()
+async function ocrCanvas(
+  canvas: HTMLCanvasElement
+): Promise<string> {
+  const Tesseract = await import('tesseract.js')
 
-      const embeddedText = content.items
-        .map((item: any) => item.str || '')
-        .join(' ')
-        .trim()
+  const result = await Tesseract.recognize(
+    canvas,
+    'eng'
+  )
 
-      if (embeddedText.length > 40) {
-        allText += '\n' + embeddedText
-        continue
-      }
+  return result.data.text || ''
+}
 
-      // Otherwise render page and OCR it
+async function ocrImageFile(
+  file: File
+): Promise<string> {
+  const bitmap = await createImageBitmap(file)
+
+  try {
+    // Full page: best chance to detect employee name/header.
+    const fullCanvas = enhanceCanvas(
+      bitmap,
+      bitmap.width,
+      bitmap.height
+    )
+
+    const fullText = await ocrCanvas(fullCanvas)
+
+    // Middle of page: usually where time-entry rows are located.
+    const tableCanvas = enhanceCanvas(
+      bitmap,
+      bitmap.width,
+      bitmap.height,
+      0.18,
+      0.62
+    )
+
+    const tableText = await ocrCanvas(tableCanvas)
+
+    return `${fullText}\n${tableText}`.trim()
+  } finally {
+    bitmap.close()
+  }
+}
+
+async function ocrPdfFile(
+  file: File
+): Promise<string> {
+  const pdfjs = await import('pdfjs-dist')
+
+  pdfjs.GlobalWorkerOptions.workerSrc =
+    `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`
+
+  const data = new Uint8Array(
+    await file.arrayBuffer()
+  )
+
+  const pdf = await pdfjs.getDocument({
+    data,
+  }).promise
+
+  let allText = ''
+
+  for (
+    let pageNumber = 1;
+    pageNumber <= pdf.numPages;
+    pageNumber++
+  ) {
+    const page = await pdf.getPage(pageNumber)
+
+    const content = await page.getTextContent()
+
+    const embeddedText = content.items
+      .map((item: any) => item.str || '')
+      .join(' ')
+      .trim()
+
+    if (embeddedText.length > 100) {
+      allText += '\n' + embeddedText
+      continue
+    }
+
+    try {
       const viewport = page.getViewport({
         scale: 2,
       })
 
-      const canvas =
+      const originalCanvas =
         document.createElement('canvas')
 
-      const ctx =
-        canvas.getContext('2d')
+      originalCanvas.width = viewport.width
+      originalCanvas.height = viewport.height
 
-      if (!ctx) continue
+      const originalCtx =
+        originalCanvas.getContext('2d')
 
-      canvas.width = viewport.width
-      canvas.height = viewport.height
+      if (!originalCtx) continue
 
       await page.render({
-        canvasContext: ctx,
-        canvas,
+        canvas: originalCanvas,
+        canvasContext: originalCtx,
         viewport,
       }).promise
 
-      const Tesseract =
-        await import('tesseract.js')
+      const enhancedCanvas = enhanceCanvas(
+        originalCanvas,
+        originalCanvas.width,
+        originalCanvas.height
+      )
 
-      const result =
-        await Tesseract.recognize(
-          canvas,
-          'eng'
-        )
+      const text =
+        await ocrCanvas(enhancedCanvas)
 
-      allText +=
-        '\n' + (result.data.text || '')
+      allText += '\n' + text
+    } catch (error) {
+      console.warn(
+        'Could not OCR PDF page:',
+        error
+      )
     }
+  }
 
-    return allText.trim()
+  return allText.trim()
+}
+
+async function runBrowserOcr(
+  file: File
+): Promise<string> {
+  const ext = file.name
+    .toLowerCase()
+    .split('.')
+    .pop()
+
+  if (
+    ['jpg', 'jpeg', 'png'].includes(ext || '')
+  ) {
+    return ocrImageFile(file)
+  }
+
+  if (ext === 'pdf') {
+    return ocrPdfFile(file)
   }
 
   return ''
 }
 
-function parseBasicOcr(text: string) {
-  const employeeMatch = text.match(
+function parseEmployeeName(text: string) {
+  const match = text.match(
     /Employee\s*Name\s*:\s*([^\n\r]+)/i
   )
 
-  const agencyMatch = text.match(
-    /Agency\s*Name\s*:\s*([^\n\r]+)/i
+  if (!match) return ''
+
+  let value = match[1].trim()
+
+  // Stop if another known label ended up on the same OCR line.
+  value = value.split(
+    /Agency\s*Name|Facility\s*(?:Name|Namo)|Week\s*Ending/i
+  )[0]
+
+  return value.trim()
+}
+
+function normalizeTime(value: string) {
+  let result = value
+    .trim()
+    .toUpperCase()
+    .replace(/\./g, ':')
+
+  result = result.replace(
+    /\s*(AM|PM)$/i,
+    ' $1'
   )
 
-  const facilityMatch = text.match(
-    /Facility\s+(?:Name|Namo)\s*:\s*([^\n\r]+)/i
+  return result
+}
+
+function dayFromDate(value: string) {
+  const match = value.match(
+    /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/
   )
 
+  if (!match) return ''
+
+  let year = Number(match[3])
+
+  if (year < 100) {
+    year += 2000
+  }
+
+  const month = Number(match[1]) - 1
+  const day = Number(match[2])
+
+  const date = new Date(
+    year,
+    month,
+    day
+  )
+
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+
+  return date.toLocaleDateString(
+    'en-US',
+    {
+      weekday: 'short',
+    }
+  )
+}
+
+function parseTimeRows(
+  text: string
+): Row[] {
+  const lines = text
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) =>
+      line
+        .replace(/[|[\]{}]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+    )
+    .filter(Boolean)
+
+  const rows: Row[] = []
+
+  const dateRegex =
+    /\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b/
+
+  const dayRegex =
+    /\b(Sun(?:day)?|Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?|Sat(?:urday)?)\b/i
+
+  const timeRegex =
+    /\b(?:[01]?\d|2[0-3]):[0-5]\d\s*(?:AM|PM)?\b/gi
+
+  for (const line of lines) {
+    const dateMatch = line.match(dateRegex)
+
+    if (!dateMatch) {
+      continue
+    }
+
+    // Don't mistake signature dates for work rows.
+    if (
+      /signature|manager|supervisor|employee\s*name/i.test(
+        line
+      )
+    ) {
+      continue
+    }
+
+    const withoutDate = line.replace(
+      dateMatch[0],
+      ' '
+    )
+
+    const times =
+      withoutDate.match(timeRegex) || []
+
+    // Do not guess unless we clearly see
+    // at least clock-in and clock-out.
+    if (times.length < 2) {
+      continue
+    }
+
+    const dayMatch =
+      line.match(dayRegex)
+
+    const row: Row = {
+      ...emptyRow(),
+
+      date: dateMatch[1],
+
+      day:
+        dayMatch?.[1] ||
+        dayFromDate(dateMatch[1]),
+
+      clock_in:
+        normalizeTime(times[0]),
+
+      clock_out:
+        normalizeTime(
+          times[times.length - 1]
+        ),
+
+      warning:
+        times.length > 2
+          ? 'Multiple time values were detected. Please review this row.'
+          : undefined,
+    }
+
+    rows.push(row)
+  }
+
+  // Remove duplicate OCR rows.
+  const unique = new Map<string, Row>()
+
+  for (const row of rows) {
+    const key = [
+      row.date,
+      row.clock_in,
+      row.clock_out,
+    ].join('|')
+
+    if (!unique.has(key)) {
+      unique.set(key, row)
+    }
+  }
+
+  return Array.from(unique.values())
+}
+
+function parseOcr(text: string) {
   return {
     employee_name:
-      employeeMatch?.[1]?.trim() || '',
+      parseEmployeeName(text),
 
-    agency_name:
-      agencyMatch?.[1]?.trim() || '',
-
-    facility_name:
-      facilityMatch?.[1]?.trim() || '',
+    rows:
+      parseTimeRows(text),
   }
 }
 
 export default function Home() {
-  const [employee, setEmployee] = useState('')
+  const [employee, setEmployee] =
+    useState('')
 
-  const [rows, setRows] = useState<Row[]>([
-    emptyRow(),
-  ])
+  const [rows, setRows] =
+    useState<Row[]>([
+      emptyRow(),
+    ])
 
   const [otMode, setOtMode] =
     useState('none')
@@ -187,13 +465,14 @@ export default function Home() {
     value: any
   ) => {
     setRows((current) =>
-      current.map((row, rowIndex) =>
-        rowIndex === index
-          ? {
-              ...row,
-              [key]: value,
-            }
-          : row
+      current.map(
+        (row, rowIndex) =>
+          rowIndex === index
+            ? {
+                ...row,
+                [key]: value,
+              }
+            : row
       )
     )
   }
@@ -203,8 +482,7 @@ export default function Home() {
       timecard: {
         employee_name: employee,
 
-        // Keep these empty so the backend
-        // remains compatible.
+        // Backend compatibility.
         week_start: '',
         week_end: '',
 
@@ -213,10 +491,13 @@ export default function Home() {
 
       overtime: {
         mode: otMode,
+
         daily_threshold:
           dailyThreshold,
+
         weekly_threshold:
           weeklyThreshold,
+
         custom_threshold:
           weeklyThreshold,
       },
@@ -234,11 +515,16 @@ export default function Home() {
     ]
   )
 
-  async function upload(file?: File) {
+  async function upload(
+    file?: File
+  ) {
     if (!file) return
 
     setSummary(null)
-    setMessage('Reading timecard…')
+
+    setMessage(
+      'Reading timecard…'
+    )
 
     const ext = file.name
       .toLowerCase()
@@ -246,14 +532,13 @@ export default function Home() {
       .pop()
 
     try {
-      // OCR for PDF / JPG / JPEG / PNG
       if (
         ['pdf', 'jpg', 'jpeg', 'png'].includes(
           ext || ''
         )
       ) {
         setMessage(
-          'Reading timecard with OCR…'
+          'Enhancing image and reading timecard with OCR. This can take several seconds…'
         )
 
         const text =
@@ -276,43 +561,78 @@ export default function Home() {
         }
 
         const parsed =
-          parseBasicOcr(text)
+          parseOcr(text)
 
         console.log(
           'PARSED OCR:',
           parsed
         )
 
-        if (parsed.employee_name) {
+        if (
+          parsed.employee_name
+        ) {
           setEmployee(
             parsed.employee_name
           )
         }
 
-        setMessage(
+        if (
+          parsed.rows.length > 0
+        ) {
+          setRows(
+            parsed.rows
+          )
+        } else {
+          setRows([
+            emptyRow(),
+          ])
+        }
+
+        if (
+          parsed.employee_name &&
+          parsed.rows.length > 0
+        ) {
+          setMessage(
+            `OCR completed. Employee name and ${parsed.rows.length} time row(s) were detected. Please review every value before calculating.`
+          )
+        } else if (
           parsed.employee_name
-            ? 'OCR completed. Employee name was detected. Please review the remaining time entries manually.'
-            : 'OCR completed, but the employee name could not be identified. Please enter it manually.'
-        )
+        ) {
+          setMessage(
+            'OCR completed. Employee name was detected, but the time rows were not clear enough to fill automatically. Please enter or correct them manually.'
+          )
+        } else if (
+          parsed.rows.length > 0
+        ) {
+          setMessage(
+            `OCR completed. ${parsed.rows.length} time row(s) were detected. Please enter the employee name and review every value.`
+          )
+        } else {
+          setMessage(
+            'OCR completed, but the document was not clear enough to identify the employee name or time rows confidently.'
+          )
+        }
 
         return
       }
 
-      // CSV / XLSX use backend extraction
-      const form = new FormData()
+      // CSV / XLSX
+      const form =
+        new FormData()
 
       form.append(
         'file',
         file
       )
 
-      const response = await fetch(
-        `${API}/extract`,
-        {
-          method: 'POST',
-          body: form,
-        }
-      )
+      const response =
+        await fetch(
+          `${API}/extract`,
+          {
+            method: 'POST',
+            body: form,
+          }
+        )
 
       const data =
         await response.json()
@@ -352,21 +672,23 @@ export default function Home() {
     setMessage('')
 
     try {
-      const response = await fetch(
-        `${API}/calculate`,
-        {
-          method: 'POST',
+      const response =
+        await fetch(
+          `${API}/calculate`,
+          {
+            method: 'POST',
 
-          headers: {
-            'Content-Type':
-              'application/json',
-          },
+            headers: {
+              'Content-Type':
+                'application/json',
+            },
 
-          body: JSON.stringify(
-            payload
-          ),
-        }
-      )
+            body:
+              JSON.stringify(
+                payload
+              ),
+          }
+        )
 
       const data =
         await response.json()
@@ -395,21 +717,23 @@ export default function Home() {
 
   async function downloadCsv() {
     try {
-      const response = await fetch(
-        `${API}/export/csv`,
-        {
-          method: 'POST',
+      const response =
+        await fetch(
+          `${API}/export/csv`,
+          {
+            method: 'POST',
 
-          headers: {
-            'Content-Type':
-              'application/json',
-          },
+            headers: {
+              'Content-Type':
+                'application/json',
+            },
 
-          body: JSON.stringify(
-            payload
-          ),
-        }
-      )
+            body:
+              JSON.stringify(
+                payload
+              ),
+          }
+        )
 
       if (!response.ok) {
         throw new Error(
@@ -421,10 +745,14 @@ export default function Home() {
         await response.blob()
 
       const url =
-        URL.createObjectURL(blob)
+        URL.createObjectURL(
+          blob
+        )
 
       const link =
-        document.createElement('a')
+        document.createElement(
+          'a'
+        )
 
       link.href = url
 
@@ -433,7 +761,9 @@ export default function Home() {
 
       link.click()
 
-      URL.revokeObjectURL(url)
+      URL.revokeObjectURL(
+        url
+      )
     } catch (error: any) {
       setMessage(
         error?.message ||
@@ -452,7 +782,8 @@ export default function Home() {
     setWeeklyThreshold(40)
 
     if (fileRef.current) {
-      fileRef.current.value = ''
+      fileRef.current.value =
+        ''
     }
   }
 
@@ -464,8 +795,7 @@ export default function Home() {
         </div>
 
         <div>
-          Privacy-first • No account
-          required
+          Privacy-first • No account required
         </div>
       </nav>
 
@@ -646,7 +976,8 @@ export default function Home() {
                   )
 
                 if (
-                  otMode === 'daily'
+                  otMode ===
+                  'daily'
                 ) {
                   setDailyThreshold(
                     value
@@ -667,10 +998,9 @@ export default function Home() {
             fontSize: 13,
           }}
         >
-          Overtime rules vary by
-          employer, facility, contract
-          and jurisdiction. Choose the
-          rule that applies to you.
+          Overtime rules vary by employer,
+          facility, contract and jurisdiction.
+          Choose the rule that applies to you.
         </p>
 
         <div className="tableWrap">
@@ -711,8 +1041,7 @@ export default function Home() {
                           update(
                             index,
                             'date',
-                            e.target
-                              .value
+                            e.target.value
                           )
                         }
                       />
@@ -727,8 +1056,7 @@ export default function Home() {
                           update(
                             index,
                             'day',
-                            e.target
-                              .value
+                            e.target.value
                           )
                         }
                       />
@@ -744,8 +1072,7 @@ export default function Home() {
                           update(
                             index,
                             'clock_in',
-                            e.target
-                              .value
+                            e.target.value
                           )
                         }
                       />
@@ -761,8 +1088,7 @@ export default function Home() {
                           update(
                             index,
                             'clock_out',
-                            e.target
-                              .value
+                            e.target.value
                           )
                         }
                       />
@@ -779,8 +1105,7 @@ export default function Home() {
                             index,
                             'break_minutes',
                             Number(
-                              e.target
-                                .value
+                              e.target.value
                             )
                           )
                         }
@@ -799,8 +1124,7 @@ export default function Home() {
                             index,
                             'regular_hours',
                             Number(
-                              e.target
-                                .value
+                              e.target.value
                             )
                           )
                         }
@@ -819,8 +1143,7 @@ export default function Home() {
                             index,
                             'overtime_hours',
                             Number(
-                              e.target
-                                .value
+                              e.target.value
                             )
                           )
                         }
@@ -839,8 +1162,7 @@ export default function Home() {
                             index,
                             'holiday_hours',
                             Number(
-                              e.target
-                                .value
+                              e.target.value
                             )
                           )
                         }
@@ -859,8 +1181,7 @@ export default function Home() {
                             index,
                             'on_call_hours',
                             Number(
-                              e.target
-                                .value
+                              e.target.value
                             )
                           )
                         }
@@ -879,8 +1200,7 @@ export default function Home() {
                             index,
                             'call_back_hours',
                             Number(
-                              e.target
-                                .value
+                              e.target.value
                             )
                           )
                         }
@@ -898,9 +1218,7 @@ export default function Home() {
                         className="btn secondary"
                         onClick={() =>
                           setRows(
-                            (
-                              current
-                            ) =>
+                            (current) =>
                               current.filter(
                                 (
                                   _,
@@ -996,9 +1314,7 @@ export default function Home() {
               ([label, value]) => (
                 <div
                   className="metric"
-                  key={String(
-                    label
-                  )}
+                  key={String(label)}
                 >
                   <span>
                     {label}
@@ -1017,9 +1333,7 @@ export default function Home() {
           <div className="actions">
             <button
               className="btn primary"
-              onClick={
-                downloadCsv
-              }
+              onClick={downloadCsv}
             >
               Download CSV
             </button>
