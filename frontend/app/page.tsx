@@ -28,7 +28,7 @@ const defaultRows = (): Row[] =>
   }))
 
 function parseTime(value: string): number | null {
-  if (!value || !value.trim()) return null
+  if (!value?.trim()) return null
 
   let text = value
     .trim()
@@ -36,10 +36,12 @@ function parseTime(value: string): number | null {
     .replace(/\./g, ':')
     .replace(/\s+/g, '')
 
-  const meridiemMatch = text.match(/(AM|PM)$/)
-  const meridiem = meridiemMatch?.[1] || ''
+  let meridiem = ''
 
-  if (meridiem) {
+  const meridiemMatch = text.match(/(AM|PM)$/)
+
+  if (meridiemMatch) {
+    meridiem = meridiemMatch[1]
     text = text.replace(/(AM|PM)$/, '')
   }
 
@@ -79,17 +81,29 @@ function parseTime(value: string): number | null {
     return null
   }
 
+  /*
+    If somebody enters 17:50PM,
+    treat it as 17:50 instead of rejecting it.
+  */
+  if (hours > 12 && hours <= 23) {
+    meridiem = ''
+  }
+
   if (meridiem) {
     if (hours < 1 || hours > 12) {
       return null
     }
 
     if (meridiem === 'AM') {
-      if (hours === 12) hours = 0
+      if (hours === 12) {
+        hours = 0
+      }
     }
 
     if (meridiem === 'PM') {
-      if (hours !== 12) hours += 12
+      if (hours !== 12) {
+        hours += 12
+      }
     }
   } else {
     if (hours < 0 || hours > 23) {
@@ -108,173 +122,35 @@ function getWorkedMinutes(row: Row): number {
     return 0
   }
 
-  let minutes = end - start
+  let workedMinutes = end - start
 
   // Overnight shift
-  if (minutes < 0) {
-    minutes += 24 * 60
+  if (workedMinutes < 0) {
+    workedMinutes += 24 * 60
   }
 
-  minutes -= Number(row.break_minutes || 0)
+  workedMinutes -= Number(row.break_minutes || 0)
 
-  if (minutes < 0) {
-    return 0
-  }
-
-  return minutes
+  return Math.max(0, workedMinutes)
 }
 
-function minutesToDecimalHours(minutes: number): string {
+function decimalHours(minutes: number) {
   return (minutes / 60).toFixed(2)
 }
 
-async function runBrowserOcr(file: File): Promise<string> {
-  const ext = file.name.toLowerCase().split('.').pop()
+function readableHours(minutes: number) {
+  const hours = Math.floor(minutes / 60)
+  const mins = minutes % 60
 
-  if (['jpg', 'jpeg', 'png'].includes(ext || '')) {
-    const Tesseract = await import('tesseract.js')
-
-    const result = await Tesseract.recognize(file, 'eng')
-
-    return result.data.text || ''
+  if (hours === 0) {
+    return `${mins}m`
   }
 
-  if (ext === 'pdf') {
-    const pdfjs = await import('pdfjs-dist')
-
-    pdfjs.GlobalWorkerOptions.workerSrc =
-      `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`
-
-    const data = new Uint8Array(await file.arrayBuffer())
-
-    const pdf = await pdfjs.getDocument({
-      data,
-    }).promise
-
-    let allText = ''
-
-    for (
-      let pageNumber = 1;
-      pageNumber <= pdf.numPages;
-      pageNumber++
-    ) {
-      const page = await pdf.getPage(pageNumber)
-
-      const content = await page.getTextContent()
-
-      const embeddedText = content.items
-        .map((item: any) => item.str || '')
-        .join(' ')
-        .trim()
-
-      if (embeddedText.length > 40) {
-        allText += '\n' + embeddedText
-        continue
-      }
-
-      try {
-        const viewport = page.getViewport({
-          scale: 2,
-        })
-
-        const canvas = document.createElement('canvas')
-        const context = canvas.getContext('2d')
-
-        if (!context) continue
-
-        canvas.width = viewport.width
-        canvas.height = viewport.height
-
-        await page.render({
-          canvas,
-          canvasContext: context,
-          viewport,
-        }).promise
-
-        const Tesseract = await import('tesseract.js')
-
-        const result = await Tesseract.recognize(
-          canvas,
-          'eng'
-        )
-
-        allText += '\n' + (result.data.text || '')
-      } catch (error) {
-        console.warn('PDF OCR failed:', error)
-      }
-    }
-
-    return allText.trim()
+  if (mins === 0) {
+    return `${hours}h`
   }
 
-  return ''
-}
-
-function normalizeOcrTime(value: string) {
-  return value
-    .toUpperCase()
-    .replace(/\s+/g, '')
-    .replace(/[Oo]/g, '0')
-    .trim()
-}
-
-function extractTimesFromLine(line: string) {
-  const cleaned = line
-    .replace(/[Oo]/g, '0')
-    .replace(/[Il]/g, '1')
-
-  const matches =
-    cleaned.match(
-      /\b(?:\d{1,2}[:.]\d{2}|\d{3,4})\s*(?:AM|PM)?\b/gi
-    ) || []
-
-  return matches
-    .map(normalizeOcrTime)
-    .filter((value) => parseTime(value) !== null)
-}
-
-function parseOcrRows(text: string): Row[] {
-  const rows = defaultRows()
-
-  const lines = text
-    .replace(/\r/g, '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-
-  DAYS.forEach((day, index) => {
-    const shortDay = day.slice(0, 3)
-
-    const line = lines.find((item) =>
-      new RegExp(`\\b${shortDay}`, 'i').test(item)
-    )
-
-    if (!line) return
-
-    const times = extractTimesFromLine(line)
-
-    if (times.length >= 2) {
-      rows[index] = {
-        ...rows[index],
-        clock_in: times[0],
-        clock_out: times[1],
-      }
-    }
-
-    const breakMatch = line.match(
-      /\b(?:break\s*)?(\d{1,3})\s*(?:min|mins|minutes)?\b/i
-    )
-
-    if (breakMatch) {
-      const value = Number(breakMatch[1])
-
-      if (value >= 0 && value <= 180) {
-        rows[index].break_minutes = value
-      }
-    }
-  })
-
-  return rows
+  return `${hours}h ${mins}m`
 }
 
 export default function Home() {
@@ -290,7 +166,7 @@ export default function Home() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   const dailyMinutes = useMemo(
-    () => rows.map((row) => getWorkedMinutes(row)),
+    () => rows.map(getWorkedMinutes),
     [rows]
   )
 
@@ -343,73 +219,56 @@ export default function Home() {
     setSubmitted(false)
 
     setMessage(
-      'Reading timecard with OCR. Please wait…'
+      'Timecard uploaded. OCR auto-fill can be connected here next.'
     )
 
-    try {
-      const text = await runBrowserOcr(file)
+    /*
+      Your free OCR logic can be connected here.
 
-      console.log('OCR TEXT:', text)
-
-      if (!text || text.trim().length < 10) {
-        setRows(defaultRows())
-
-        setMessage(
-          "OCR couldn't confidently read the timecard. Please review and correct the blank fields manually."
-        )
-
-        setSubmitted(true)
-        return
-      }
-
-      const detectedRows = parseOcrRows(text)
+      After OCR fills rows:
 
       setRows(detectedRows)
-
-      const detectedCount = detectedRows.filter(
-        (row) => row.clock_in && row.clock_out
-      ).length
-
-      if (detectedCount > 0) {
-        setMessage(
-          `OCR completed. ${detectedCount} day(s) were detected. Please verify the values.`
-        )
-      } else {
-        setMessage(
-          'OCR completed, but the daily times were not clear enough. Please correct the fields manually.'
-        )
-      }
-
-      // Uploaded timecard calculates automatically
       setSubmitted(true)
-    } catch (error) {
-      console.error(error)
-
-      setMessage(
-        'Could not read the uploaded timecard. Please enter the times manually.'
-      )
-
-      setSubmitted(true)
-    }
+    */
   }
 
   function submitManual() {
-    setSubmitted(true)
+    const completedRows = rows.filter(
+      (row) =>
+        row.clock_in.trim() &&
+        row.clock_out.trim()
+    )
 
-    const completedDays = rows.filter(
-      (row) => row.clock_in && row.clock_out
-    ).length
-
-    if (completedDays === 0) {
+    if (completedRows.length === 0) {
       setMessage(
-        'Enter at least one Clock In and Clock Out pair.'
+        'Please enter at least one Clock In and Clock Out.'
       )
+      return
+    }
 
-      setSubmitted(false)
+    const invalidRow = completedRows.find(
+      (row) =>
+        parseTime(row.clock_in) === null ||
+        parseTime(row.clock_out) === null
+    )
+
+    if (invalidRow) {
+      setMessage(
+        `Please check the time format for ${invalidRow.day}. Use examples like 6:40AM, 5:50PM, or 17:50.`
+      )
       return
     }
 
     setMessage('')
+    setSubmitted(true)
+
+    setTimeout(() => {
+      document
+        .getElementById('results')
+        ?.scrollIntoView({
+          behavior: 'smooth',
+        })
+    }, 50)
   }
 
   function reset() {
@@ -424,54 +283,103 @@ export default function Home() {
   }
 
   return (
-    <main className="wrap">
-      <nav className="nav">
-        <div className="brand">
-          TimeCard Calculator
+    <main className="calculatorPage">
+      <section className="topBar">
+        <div className="brandBlock">
+          <div className="brandIcon">TC</div>
+
+          <div>
+            <div className="brandTitle">
+              TimeCard Calculator
+            </div>
+
+            <div className="brandSubtitle">
+              Simple weekly hour calculations
+            </div>
+          </div>
         </div>
 
-        <div>
+        <div className="privacyBadge">
           No account required
-        </div>
-      </nav>
-
-      <section className="hero">
-        <h1>TimeCard Calculator</h1>
-
-        <p>
-          Upload a timecard or enter your daily times manually.
-          Hours are calculated in decimal format.
-        </p>
-
-        <div className="actions">
-          <button
-            className="btn primary"
-            onClick={() => fileRef.current?.click()}
-          >
-            Upload Timecard
-          </button>
-
-          <button
-            className="btn secondary"
-            onClick={startManualEntry}
-          >
-            Enter Time Manually
-          </button>
-
-          <input
-            ref={fileRef}
-            hidden
-            type="file"
-            accept=".pdf,.jpg,.jpeg,.png"
-            onChange={(event) =>
-              upload(event.target.files?.[0])
-            }
-          />
         </div>
       </section>
 
-      <section className="card" id="entries">
-        <h2>Time entries</h2>
+      <section className="heroCard">
+        <div className="heroContent">
+          <span className="eyebrow">
+            WEEKLY HOURS
+          </span>
+
+          <h1>
+            Calculate your timecard in seconds
+          </h1>
+
+          <p>
+            Upload a timecard or enter your shifts
+            manually. Breaks and overnight shifts are
+            handled automatically.
+          </p>
+
+          <div className="heroActions">
+            <button
+              className="primaryButton"
+              onClick={() =>
+                fileRef.current?.click()
+              }
+            >
+              Upload Timecard
+            </button>
+
+            <button
+              className="secondaryButton"
+              onClick={startManualEntry}
+            >
+              Enter Manually
+            </button>
+
+            <input
+              ref={fileRef}
+              hidden
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png"
+              onChange={(event) =>
+                upload(event.target.files?.[0])
+              }
+            />
+          </div>
+        </div>
+
+        <div className="heroStat">
+          <span>Supports</span>
+          <strong>
+            AM/PM & 24-hour
+          </strong>
+          <small>
+            Overnight shifts supported
+          </small>
+        </div>
+      </section>
+
+      <section
+        className="mainCard"
+        id="entries"
+      >
+        <div className="sectionHeading">
+          <div>
+            <span className="sectionLabel">
+              TIME ENTRIES
+            </span>
+
+            <h2>
+              Enter your weekly shifts
+            </h2>
+
+            <p>
+              Use formats like 6:40AM, 5:50PM,
+              06:40, or 17:50.
+            </p>
+          </div>
+        </div>
 
         {message && (
           <div className="notice">
@@ -479,114 +387,90 @@ export default function Home() {
           </div>
         )}
 
-        <div className="tableWrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Day</th>
-                <th>Clock In</th>
-                <th>Clock Out</th>
-                <th>Break (min)</th>
-                <th>Hours</th>
-              </tr>
-            </thead>
+        <div className="desktopTable">
+          <div className="tableHeader">
+            <div>Day</div>
+            <div>Clock In</div>
+            <div>Clock Out</div>
+            <div>Break</div>
+            <div>Hours</div>
+          </div>
 
-            <tbody>
-              {rows.map((row, index) => (
-                <tr key={row.day}>
-                  <td>
-                    <input
-                      value={row.day}
-                      onChange={(event) =>
-                        updateRow(
-                          index,
-                          'day',
-                          event.target.value
-                        )
-                      }
-                    />
-                  </td>
+          {rows.map((row, index) => (
+            <div
+              className="timeRow"
+              key={row.day}
+            >
+              <div className="dayCell">
+                {row.day}
+              </div>
 
-                  <td>
-                    <input
-                      value={row.clock_in}
-                      placeholder=""
-                      onChange={(event) =>
-                        updateRow(
-                          index,
-                          'clock_in',
-                          event.target.value
-                        )
-                      }
-                    />
-                  </td>
+              <input
+                className="timeInput"
+                value={row.clock_in}
+                placeholder="e.g. 6:40AM"
+                onChange={(event) =>
+                  updateRow(
+                    index,
+                    'clock_in',
+                    event.target.value
+                  )
+                }
+              />
 
-                  <td>
-                    <input
-                      value={row.clock_out}
-                      placeholder=""
-                      onChange={(event) =>
-                        updateRow(
-                          index,
-                          'clock_out',
-                          event.target.value
-                        )
-                      }
-                    />
-                  </td>
+              <input
+                className="timeInput"
+                value={row.clock_out}
+                placeholder="e.g. 5:50PM"
+                onChange={(event) =>
+                  updateRow(
+                    index,
+                    'clock_out',
+                    event.target.value
+                  )
+                }
+              />
 
-                  <td>
-                    <input
-                      type="number"
-                      min="0"
-                      value={row.break_minutes}
-                      onChange={(event) =>
-                        updateRow(
-                          index,
-                          'break_minutes',
-                          Number(event.target.value)
-                        )
-                      }
-                    />
-                  </td>
+              <div className="breakInputWrap">
+                <input
+                  className="timeInput"
+                  type="number"
+                  min="0"
+                  value={row.break_minutes}
+                  onChange={(event) =>
+                    updateRow(
+                      index,
+                      'break_minutes',
+                      Number(event.target.value)
+                    )
+                  }
+                />
 
-                  <td>
-                    <strong>
-                      {submitted
-                        ? minutesToDecimalHours(
-                            dailyMinutes[index]
-                          )
-                        : '—'}
-                    </strong>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                <span>min</span>
+              </div>
+
+              <div className="hoursPreview">
+                {dailyMinutes[index] > 0
+                  ? decimalHours(
+                      dailyMinutes[index]
+                    )
+                  : '—'}
+              </div>
+            </div>
+          ))}
         </div>
 
         {entryMode === 'manual' && (
-          <div className="actions">
+          <div className="formActions">
             <button
-              className="btn primary"
+              className="primaryButton"
               onClick={submitManual}
             >
-              Submit
+              Calculate Hours
             </button>
 
             <button
-              className="btn secondary"
-              onClick={reset}
-            >
-              Reset
-            </button>
-          </div>
-        )}
-
-        {entryMode === 'upload' && (
-          <div className="actions">
-            <button
-              className="btn secondary"
+              className="secondaryButton"
               onClick={reset}
             >
               Reset
@@ -596,106 +480,174 @@ export default function Home() {
       </section>
 
       {submitted && (
-        <section className="card">
-          <h2>Result</h2>
+        <section
+          className="resultCard"
+          id="results"
+        >
+          <div className="resultHeader">
+            <div>
+              <span className="sectionLabel">
+                RESULTS
+              </span>
 
-          <div className="tableWrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Summary</th>
-                  <th>Hours</th>
-                </tr>
-              </thead>
+              <h2>
+                Weekly Summary
+              </h2>
+            </div>
 
-              <tbody>
-                {rows.map((row, index) => {
-                  const minutes = dailyMinutes[index]
+            <div className="weeklyTotalHero">
+              <span>
+                Weekly Total
+              </span>
 
-                  if (
-                    !row.clock_in ||
-                    !row.clock_out
-                  ) {
-                    return null
-                  }
+              <strong>
+                {decimalHours(
+                  weeklyMinutes
+                )}
+              </strong>
 
-                  return (
-                    <tr key={`result-${row.day}`}>
-                      <td>
-                        {row.day}
-                      </td>
-
-                      <td>
-                        {row.clock_in}
-                        {' - '}
-                        {row.clock_out}
-
-                        {row.break_minutes > 0 && (
-                          <>
-                            <br />
-                            {row.break_minutes} minutes break
-                          </>
-                        )}
-                      </td>
-
-                      <td>
-                        <strong>
-                          {minutesToDecimalHours(minutes)}
-                        </strong>
-                      </td>
-                    </tr>
-                  )
-                })}
-
-                <tr>
-                  <td />
-
-                  <td>
-                    <strong>
-                      Weekly Total:
-                    </strong>
-                  </td>
-
-                  <td>
-                    <strong>
-                      {minutesToDecimalHours(
-                        weeklyMinutes
-                      )}
-                    </strong>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+              <small>
+                {readableHours(
+                  weeklyMinutes
+                )}
+              </small>
+            </div>
           </div>
 
-          <div className="actions">
+          <div className="resultTable">
+            <div className="resultTableHeader">
+              <div>Day</div>
+              <div>Shift</div>
+              <div>Break</div>
+              <div>Hours</div>
+            </div>
+
+            {rows.map((row, index) => {
+              if (
+                !row.clock_in ||
+                !row.clock_out
+              ) {
+                return null
+              }
+
+              const minutes =
+                dailyMinutes[index]
+
+              return (
+                <div
+                  className="resultRow"
+                  key={`result-${row.day}`}
+                >
+                  <div>
+                    <strong>
+                      {row.day}
+                    </strong>
+                  </div>
+
+                  <div>
+                    {row.clock_in}
+                    {' → '}
+                    {row.clock_out}
+                  </div>
+
+                  <div>
+                    {row.break_minutes > 0
+                      ? `${row.break_minutes} min`
+                      : '—'}
+                  </div>
+
+                  <div className="resultHours">
+                    <strong>
+                      {decimalHours(
+                        minutes
+                      )}
+                    </strong>
+
+                    <small>
+                      {readableHours(
+                        minutes
+                      )}
+                    </small>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="resultFooter">
+            <div>
+              <span>
+                Total weekly hours
+              </span>
+
+              <strong>
+                {decimalHours(
+                  weeklyMinutes
+                )} hours
+              </strong>
+            </div>
+
             <button
-              className="btn primary"
-              onClick={() => window.print()}
+              className="primaryButton"
+              onClick={() =>
+                window.print()
+              }
             >
-              Print
+              Print Summary
             </button>
           </div>
         </section>
       )}
 
-      <section className="card">
-        <h2>How hours are calculated</h2>
+      <section className="infoGrid">
+        <div className="infoCard">
+          <span className="infoNumber">
+            01
+          </span>
 
-        <p>
-          Minutes are converted to decimal hours by dividing
-          by 60. For example, 33 minutes equals 0.55 hours.
-        </p>
+          <h3>
+            Decimal hours
+          </h3>
 
-        <p>
-          Overnight shifts are supported automatically.
-          For example, 6:40 PM to 7:13 AM continues into
-          the following day.
-        </p>
+          <p>
+            Minutes are divided by 60.
+            For example, 33 minutes =
+            0.55 hours.
+          </p>
+        </div>
+
+        <div className="infoCard">
+          <span className="infoNumber">
+            02
+          </span>
+
+          <h3>
+            Overnight shifts
+          </h3>
+
+          <p>
+            Clocking out the following morning is
+            handled automatically.
+          </p>
+        </div>
+
+        <div className="infoCard">
+          <span className="infoNumber">
+            03
+          </span>
+
+          <h3>
+            Break deduction
+          </h3>
+
+          <p>
+            Break minutes are deducted before
+            decimal hours are calculated.
+          </p>
+        </div>
       </section>
 
-      <footer className="footer">
+      <footer className="siteFooter">
         TimeCard Calculator
       </footer>
     </main>
