@@ -110,7 +110,7 @@ function getWorkedMinutes(row: Row): number {
 
   let minutes = end - start
 
-  // Overnight shift, for example 6:40 PM -> 7:13 AM
+  // Overnight shift
   if (minutes < 0) {
     minutes += 24 * 60
   }
@@ -128,8 +128,163 @@ function minutesToDecimalHours(minutes: number): string {
   return (minutes / 60).toFixed(2)
 }
 
+async function runBrowserOcr(file: File): Promise<string> {
+  const ext = file.name.toLowerCase().split('.').pop()
+
+  if (['jpg', 'jpeg', 'png'].includes(ext || '')) {
+    const Tesseract = await import('tesseract.js')
+
+    const result = await Tesseract.recognize(file, 'eng')
+
+    return result.data.text || ''
+  }
+
+  if (ext === 'pdf') {
+    const pdfjs = await import('pdfjs-dist')
+
+    pdfjs.GlobalWorkerOptions.workerSrc =
+      `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`
+
+    const data = new Uint8Array(await file.arrayBuffer())
+
+    const pdf = await pdfjs.getDocument({
+      data,
+    }).promise
+
+    let allText = ''
+
+    for (
+      let pageNumber = 1;
+      pageNumber <= pdf.numPages;
+      pageNumber++
+    ) {
+      const page = await pdf.getPage(pageNumber)
+
+      const content = await page.getTextContent()
+
+      const embeddedText = content.items
+        .map((item: any) => item.str || '')
+        .join(' ')
+        .trim()
+
+      if (embeddedText.length > 40) {
+        allText += '\n' + embeddedText
+        continue
+      }
+
+      try {
+        const viewport = page.getViewport({
+          scale: 2,
+        })
+
+        const canvas = document.createElement('canvas')
+        const context = canvas.getContext('2d')
+
+        if (!context) continue
+
+        canvas.width = viewport.width
+        canvas.height = viewport.height
+
+        await page.render({
+          canvas,
+          canvasContext: context,
+          viewport,
+        }).promise
+
+        const Tesseract = await import('tesseract.js')
+
+        const result = await Tesseract.recognize(
+          canvas,
+          'eng'
+        )
+
+        allText += '\n' + (result.data.text || '')
+      } catch (error) {
+        console.warn('PDF OCR failed:', error)
+      }
+    }
+
+    return allText.trim()
+  }
+
+  return ''
+}
+
+function normalizeOcrTime(value: string) {
+  return value
+    .toUpperCase()
+    .replace(/\s+/g, '')
+    .replace(/[Oo]/g, '0')
+    .trim()
+}
+
+function extractTimesFromLine(line: string) {
+  const cleaned = line
+    .replace(/[Oo]/g, '0')
+    .replace(/[Il]/g, '1')
+
+  const matches =
+    cleaned.match(
+      /\b(?:\d{1,2}[:.]\d{2}|\d{3,4})\s*(?:AM|PM)?\b/gi
+    ) || []
+
+  return matches
+    .map(normalizeOcrTime)
+    .filter((value) => parseTime(value) !== null)
+}
+
+function parseOcrRows(text: string): Row[] {
+  const rows = defaultRows()
+
+  const lines = text
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  DAYS.forEach((day, index) => {
+    const shortDay = day.slice(0, 3)
+
+    const line = lines.find((item) =>
+      new RegExp(`\\b${shortDay}`, 'i').test(item)
+    )
+
+    if (!line) return
+
+    const times = extractTimesFromLine(line)
+
+    if (times.length >= 2) {
+      rows[index] = {
+        ...rows[index],
+        clock_in: times[0],
+        clock_out: times[1],
+      }
+    }
+
+    const breakMatch = line.match(
+      /\b(?:break\s*)?(\d{1,3})\s*(?:min|mins|minutes)?\b/i
+    )
+
+    if (breakMatch) {
+      const value = Number(breakMatch[1])
+
+      if (value >= 0 && value <= 180) {
+        rows[index].break_minutes = value
+      }
+    }
+  })
+
+  return rows
+}
+
 export default function Home() {
   const [rows, setRows] = useState<Row[]>(defaultRows())
+
+  const [entryMode, setEntryMode] =
+    useState<'upload' | 'manual'>('manual')
+
+  const [submitted, setSubmitted] = useState(false)
+
   const [message, setMessage] = useState('')
 
   const fileRef = useRef<HTMLInputElement>(null)
@@ -142,7 +297,7 @@ export default function Home() {
   const weeklyMinutes = useMemo(
     () =>
       dailyMinutes.reduce(
-        (total, minutes) => total + minutes,
+        (sum, minutes) => sum + minutes,
         0
       ),
     [dailyMinutes]
@@ -153,6 +308,10 @@ export default function Home() {
     key: keyof Row,
     value: string | number
   ) {
+    if (entryMode === 'manual') {
+      setSubmitted(false)
+    }
+
     setRows((current) =>
       current.map((row, rowIndex) =>
         rowIndex === index
@@ -165,37 +324,103 @@ export default function Home() {
     )
   }
 
-  function reset() {
-    setRows(defaultRows())
+  function startManualEntry() {
+    setEntryMode('manual')
+    setSubmitted(false)
     setMessage('')
 
-    if (fileRef.current) {
-      fileRef.current.value = ''
-    }
-  }
-
-  function printResults() {
-    window.print()
+    document
+      .getElementById('entries')
+      ?.scrollIntoView({
+        behavior: 'smooth',
+      })
   }
 
   async function upload(file?: File) {
     if (!file) return
 
-    /*
-      OCR will be added here next.
-
-      For now this version keeps the calculator
-      stable and accurate.
-
-      The OCR step should eventually populate:
-      clock_in
-      clock_out
-      break_minutes
-    */
+    setEntryMode('upload')
+    setSubmitted(false)
 
     setMessage(
-      'Timecard selected. OCR auto-fill will be connected next. You can enter or correct the daily times manually.'
+      'Reading timecard with OCR. Please wait…'
     )
+
+    try {
+      const text = await runBrowserOcr(file)
+
+      console.log('OCR TEXT:', text)
+
+      if (!text || text.trim().length < 10) {
+        setRows(defaultRows())
+
+        setMessage(
+          "OCR couldn't confidently read the timecard. Please review and correct the blank fields manually."
+        )
+
+        setSubmitted(true)
+        return
+      }
+
+      const detectedRows = parseOcrRows(text)
+
+      setRows(detectedRows)
+
+      const detectedCount = detectedRows.filter(
+        (row) => row.clock_in && row.clock_out
+      ).length
+
+      if (detectedCount > 0) {
+        setMessage(
+          `OCR completed. ${detectedCount} day(s) were detected. Please verify the values.`
+        )
+      } else {
+        setMessage(
+          'OCR completed, but the daily times were not clear enough. Please correct the fields manually.'
+        )
+      }
+
+      // Uploaded timecard calculates automatically
+      setSubmitted(true)
+    } catch (error) {
+      console.error(error)
+
+      setMessage(
+        'Could not read the uploaded timecard. Please enter the times manually.'
+      )
+
+      setSubmitted(true)
+    }
+  }
+
+  function submitManual() {
+    setSubmitted(true)
+
+    const completedDays = rows.filter(
+      (row) => row.clock_in && row.clock_out
+    ).length
+
+    if (completedDays === 0) {
+      setMessage(
+        'Enter at least one Clock In and Clock Out pair.'
+      )
+
+      setSubmitted(false)
+      return
+    }
+
+    setMessage('')
+  }
+
+  function reset() {
+    setRows(defaultRows())
+    setEntryMode('manual')
+    setSubmitted(false)
+    setMessage('')
+
+    if (fileRef.current) {
+      fileRef.current.value = ''
+    }
   }
 
   return (
@@ -214,8 +439,8 @@ export default function Home() {
         <h1>TimeCard Calculator</h1>
 
         <p>
-          Upload a timecard or enter your daily hours manually.
-          Daily and weekly totals update automatically.
+          Upload a timecard or enter your daily times manually.
+          Hours are calculated in decimal format.
         </p>
 
         <div className="actions">
@@ -228,13 +453,7 @@ export default function Home() {
 
           <button
             className="btn secondary"
-            onClick={() =>
-              document
-                .getElementById('entries')
-                ?.scrollIntoView({
-                  behavior: 'smooth',
-                })
-            }
+            onClick={startManualEntry}
           >
             Enter Time Manually
           </button>
@@ -333,9 +552,11 @@ export default function Home() {
 
                   <td>
                     <strong>
-                      {minutesToDecimalHours(
-                        dailyMinutes[index]
-                      )}
+                      {submitted
+                        ? minutesToDecimalHours(
+                            dailyMinutes[index]
+                          )
+                        : '—'}
                     </strong>
                   </td>
                 </tr>
@@ -344,6 +565,37 @@ export default function Home() {
           </table>
         </div>
 
+        {entryMode === 'manual' && (
+          <div className="actions">
+            <button
+              className="btn primary"
+              onClick={submitManual}
+            >
+              Submit
+            </button>
+
+            <button
+              className="btn secondary"
+              onClick={reset}
+            >
+              Reset
+            </button>
+          </div>
+        )}
+
+        {entryMode === 'upload' && (
+          <div className="actions">
+            <button
+              className="btn secondary"
+              onClick={reset}
+            >
+              Reset
+            </button>
+          </div>
+        )}
+      </section>
+
+      {submitted && (
         <section className="card">
           <h2>Result</h2>
 
@@ -361,7 +613,10 @@ export default function Home() {
                 {rows.map((row, index) => {
                   const minutes = dailyMinutes[index]
 
-                  if (minutes <= 0) {
+                  if (
+                    !row.clock_in ||
+                    !row.clock_out
+                  ) {
                     return null
                   }
 
@@ -395,6 +650,7 @@ export default function Home() {
 
                 <tr>
                   <td />
+
                   <td>
                     <strong>
                       Weekly Total:
@@ -412,27 +668,20 @@ export default function Home() {
               </tbody>
             </table>
           </div>
+
+          <div className="actions">
+            <button
+              className="btn primary"
+              onClick={() => window.print()}
+            >
+              Print
+            </button>
+          </div>
         </section>
-
-        <div className="actions">
-          <button
-            className="btn primary"
-            onClick={printResults}
-          >
-            Print
-          </button>
-
-          <button
-            className="btn secondary"
-            onClick={reset}
-          >
-            Reset
-          </button>
-        </div>
-      </section>
+      )}
 
       <section className="card">
-        <h2>How totals are calculated</h2>
+        <h2>How hours are calculated</h2>
 
         <p>
           Minutes are converted to decimal hours by dividing
@@ -440,9 +689,9 @@ export default function Home() {
         </p>
 
         <p>
-          Overnight shifts are handled automatically. A shift
-          from 6:40 PM to 7:13 AM is treated as continuing into
-          the next day.
+          Overnight shifts are supported automatically.
+          For example, 6:40 PM to 7:13 AM continues into
+          the following day.
         </p>
       </section>
 
