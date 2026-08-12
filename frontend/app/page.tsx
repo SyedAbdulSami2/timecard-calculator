@@ -11,6 +11,17 @@ type DetectedShift = {
   needs_review?: boolean
 }
 
+type ConvertedPage = {
+  page_number: number
+  width: number
+  height: number
+  image: string
+}
+
+const API =
+  process.env.NEXT_PUBLIC_API_URL ||
+  'https://timecard-calculator-api.onrender.com'
+
 const DAYS = [
   'Monday',
   'Tuesday',
@@ -33,7 +44,7 @@ function manualRows(): DetectedShift[] {
 }
 
 /* ======================================================
-   TIME PARSING
+   TIME HELPERS
 ====================================================== */
 
 function normalizeTime(value: string) {
@@ -60,7 +71,6 @@ function parseTime(value: string): number | null {
   if (!value?.trim()) return null
 
   let text = normalizeTime(value)
-
   let meridiem = ''
 
   const meridiemMatch = text.match(/(AM|PM)$/)
@@ -86,9 +96,7 @@ function parseTime(value: string): number | null {
   }
 
   if (meridiem) {
-    if (hours < 1 || hours > 12) {
-      return null
-    }
+    if (hours < 1 || hours > 12) return null
 
     if (hours === 12) {
       hours = 0
@@ -118,7 +126,6 @@ function getShiftMinutes(
 
   let duration = end - start
 
-  // Overnight
   if (duration < 0) {
     duration += 24 * 60
   }
@@ -145,15 +152,8 @@ function isPlausibleShift(
     duration += 24 * 60
   }
 
-  // Reject status-bar times / identical values / OCR noise
-  if (duration < 15) {
-    return false
-  }
-
-  // Reject unlikely shift pairings
-  if (duration > 20 * 60) {
-    return false
-  }
+  if (duration < 15) return false
+  if (duration > 20 * 60) return false
 
   return true
 }
@@ -173,7 +173,7 @@ function readableHours(minutes: number) {
 }
 
 /* ======================================================
-   OCR TEXT PARSING
+   UNIVERSAL OCR PARSING
 ====================================================== */
 
 function findTimes(text: string) {
@@ -210,7 +210,7 @@ function detectLabel(text: string, index: number) {
   }
 
   const dateMatch = text.match(
-    /\b\d{1,2}[\/-]\d{1,2}(?:[\/-]\d{2,4})?\b/
+    /\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b/
   )
 
   if (dateMatch) {
@@ -221,12 +221,9 @@ function detectLabel(text: string, index: number) {
 }
 
 function detectBreak(text: string) {
-  const patterns = [
-    /(?:break|meal)[^0-9]{0,20}(\d{1,3})\s*(?:min|mins|minutes)?/i,
-    /(\d{1,2})\s*:\s*(\d{2})\s*(?:break|meal)/i,
-  ]
-
-  const first = text.match(patterns[0])
+  const first = text.match(
+    /(?:break|meal)[^0-9]{0,20}(\d{1,3})\s*(?:min|mins|minutes)?/i
+  )
 
   if (first) {
     const value = Number(first[1])
@@ -236,7 +233,9 @@ function detectBreak(text: string) {
     }
   }
 
-  const second = text.match(patterns[1])
+  const second = text.match(
+    /(\d{1,2})\s*:\s*(\d{2})\s*(?:break|meal)/i
+  )
 
   if (second) {
     const hours = Number(second[1])
@@ -255,8 +254,8 @@ function detectBreak(text: string) {
 function detectPrintedHours(text: string) {
   const patterns = [
     /daily\s*total\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
-    /hours?\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
     /total\s*hours?\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
+    /hours?\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
   ]
 
   for (const pattern of patterns) {
@@ -335,56 +334,45 @@ function parseUniversalTimecard(text: string) {
 
   const detected: DetectedShift[] = []
 
-  /*
-   * PASS 1
-   * Strongest case:
-   * two times on the same OCR line.
-   */
+  // Pass 1: same OCR line
   for (const line of lines) {
     const times = findTimes(line)
 
     if (times.length >= 2) {
-      addCandidate(
-        detected,
-        line,
-        times[0],
-        times[1]
-      )
+      for (let i = 0; i + 1 < times.length; i += 2) {
+        addCandidate(
+          detected,
+          line,
+          times[i],
+          times[i + 1]
+        )
+      }
     }
   }
 
-  /*
-   * PASS 2
-   * Timecard rows frequently span multiple OCR lines.
-   */
-  for (let i = 0; i < lines.length; i++) {
-    const block = lines
-      .slice(i, i + 6)
-      .join(' ')
+  // Pass 2: nearby OCR lines
+  if (detected.length === 0) {
+    for (let i = 0; i < lines.length; i++) {
+      const block = lines
+        .slice(i, i + 4)
+        .join(' ')
 
-    const times = findTimes(block)
+      const times = findTimes(block)
 
-    if (times.length < 2) continue
+      if (times.length < 2) continue
 
-    for (
-      let timeIndex = 0;
-      timeIndex + 1 < times.length;
-      timeIndex += 2
-    ) {
-      addCandidate(
-        detected,
-        block,
-        times[timeIndex],
-        times[timeIndex + 1]
-      )
+      for (let j = 0; j + 1 < times.length; j += 2) {
+        addCandidate(
+          detected,
+          block,
+          times[j],
+          times[j + 1]
+        )
+      }
     }
   }
 
-  /*
-   * PASS 3
-   * No labels/dates/rows at all.
-   * Pair valid times in reading order.
-   */
+  // Pass 3: completely unlabeled document
   if (detected.length === 0) {
     const allTimes = findTimes(cleaned)
 
@@ -412,83 +400,60 @@ function parseUniversalTimecard(text: string) {
 }
 
 /* ======================================================
-   IMAGE OCR
+   BACKEND CONVERTER
 ====================================================== */
 
-async function prepareImage(file: File) {
-  const bitmap = await createImageBitmap(file)
+async function convertUploadedDocument(
+  file: File
+): Promise<ConvertedPage[]> {
+  const form = new FormData()
 
-  const scale = 3
+  form.append('file', file)
 
-  const canvas = document.createElement('canvas')
-
-  canvas.width = Math.round(bitmap.width * scale)
-  canvas.height = Math.round(bitmap.height * scale)
-
-  const context = canvas.getContext('2d')
-
-  if (!context) {
-    throw new Error('Could not prepare the image.')
-  }
-
-  context.drawImage(
-    bitmap,
-    0,
-    0,
-    canvas.width,
-    canvas.height
+  const response = await fetch(
+    `${API}/convert-timecard`,
+    {
+      method: 'POST',
+      body: form,
+    }
   )
 
-  const imageData = context.getImageData(
-    0,
-    0,
-    canvas.width,
-    canvas.height
-  )
+  const data = await response.json()
 
-  const pixels = imageData.data
-
-  for (
-    let i = 0;
-    i < pixels.length;
-    i += 4
-  ) {
-    const gray = Math.round(
-      pixels[i] * 0.299 +
-        pixels[i + 1] * 0.587 +
-        pixels[i + 2] * 0.114
+  if (!response.ok) {
+    throw new Error(
+      data.detail ||
+        'Could not prepare this document.'
     )
-
-    const value =
-      gray < 175
-        ? Math.max(0, gray - 45)
-        : Math.min(255, gray + 25)
-
-    pixels[i] = value
-    pixels[i + 1] = value
-    pixels[i + 2] = value
   }
 
-  context.putImageData(
-    imageData,
-    0,
-    0
-  )
+  if (
+    !Array.isArray(data.pages) ||
+    data.pages.length === 0
+  ) {
+    throw new Error(
+      'The document was converted, but no pages were returned.'
+    )
+  }
 
-  return canvas
+  return data.pages
 }
 
-async function recognizeCanvas(
-  canvas: HTMLCanvasElement
+/* ======================================================
+   OCR CONVERTED PAGES
+====================================================== */
+
+async function recognizeConvertedPage(
+  imageUrl: string
 ) {
   const Tesseract = await import('tesseract.js')
 
   const result = await Tesseract.recognize(
-    canvas,
+    imageUrl,
     'eng',
     {
-      logger: (message: any) => {
-        console.log('OCR:', message)
+      logger: (progress: any) => {
+        console.log('OCR:', progress)
       },
     }
   )
@@ -496,130 +461,34 @@ async function recognizeCanvas(
   return result.data.text || ''
 }
 
-async function runImageOcr(file: File) {
-  const canvas = await prepareImage(file)
-
-  return recognizeCanvas(canvas)
-}
-
-/* ======================================================
-   PDF OCR
-====================================================== */
-
-async function runPdfOcr(file: File) {
-  const pdfjs = await import('pdfjs-dist')
-
-  pdfjs.GlobalWorkerOptions.workerSrc =
-    `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`
-
-  const bytes = new Uint8Array(
-    await file.arrayBuffer()
-  )
-
-  let pdf: any
-
-  try {
-    pdf = await pdfjs.getDocument({
-      data: bytes,
-      useWorkerFetch: true,
-      isEvalSupported: false,
-    }).promise
-  } catch (error) {
-    console.error('PDF load error:', error)
-
-    throw new Error(
-      'This PDF could not be opened in the browser. Try saving the page as an image (JPG/PNG) and upload it again.'
-    )
-  }
-
-  let resultText = ''
+async function readConvertedPages(
+  pages: ConvertedPage[],
+  onProgress?: (
+    current: number,
+    total: number
+  ) => void
+) {
+  let fullText = ''
 
   for (
-    let pageNumber = 1;
-    pageNumber <= pdf.numPages;
-    pageNumber++
+    let index = 0;
+    index < pages.length;
+    index++
   ) {
-    const page = await pdf.getPage(pageNumber)
-
-    /*
-     * First get normal PDF text.
-     */
-    try {
-      const content = await page.getTextContent()
-
-      const embeddedText = content.items
-        .map((item: any) => item.str || '')
-        .join(' ')
-        .trim()
-
-      if (embeddedText.length > 80) {
-        resultText += `\n${embeddedText}`
-      }
-    } catch {
-      // Ignore and continue with rendered OCR.
-    }
-
-    /*
-     * Always render scanned/document page as well.
-     */
-    try {
-      const viewport = page.getViewport({
-        scale: 3,
-      })
-
-      const canvas =
-        document.createElement('canvas')
-
-      const context =
-        canvas.getContext('2d')
-
-      if (!context) continue
-
-      canvas.width = Math.ceil(viewport.width)
-      canvas.height = Math.ceil(viewport.height)
-
-      await page.render({
-        canvas,
-        canvasContext: context,
-        viewport,
-      }).promise
-
-      const pageText =
-        await recognizeCanvas(canvas)
-
-      resultText += `\n${pageText}`
-    } catch (error) {
-      console.warn(
-        `OCR failed on PDF page ${pageNumber}`,
-        error
-      )
-    }
-  }
-
-  return resultText.trim()
-}
-
-async function runBrowserOcr(file: File) {
-  const extension = file.name
-    .toLowerCase()
-    .split('.')
-    .pop()
-
-  if (
-    ['jpg', 'jpeg', 'png'].includes(
-      extension || ''
+    onProgress?.(
+      index + 1,
+      pages.length
     )
-  ) {
-    return runImageOcr(file)
+
+    const text =
+      await recognizeConvertedPage(
+        pages[index].image
+      )
+
+    fullText += `\n${text}`
   }
 
-  if (extension === 'pdf') {
-    return runPdfOcr(file)
-  }
-
-  throw new Error(
-    'Supported uploads are PDF, JPG, JPEG, and PNG.'
-  )
+  return fullText.trim()
 }
 
 /* ======================================================
@@ -683,9 +552,7 @@ export default function Home() {
       )
     )
 
-    if (mode === 'manual') {
-      setSubmitted(false)
-    }
+    setSubmitted(false)
   }
 
   function startManual() {
@@ -711,12 +578,28 @@ export default function Home() {
     setReadingFile(true)
 
     setMessage(
-      'Reading the document and detecting work shifts…'
+      'Preparing your timecard…'
     )
 
     try {
+      // STEP 1: backend converts source document
+      const pages =
+        await convertUploadedDocument(file)
+
+      setMessage(
+        `Document prepared. Reading ${pages.length} page(s)…`
+      )
+
+      // STEP 2: OCR standardized images
       const text =
-        await runBrowserOcr(file)
+        await readConvertedPages(
+          pages,
+          (current, total) => {
+            setMessage(
+              `Reading timecard page ${current} of ${total}…`
+            )
+          }
+        )
 
       console.log(
         'FULL OCR TEXT:',
@@ -728,10 +611,11 @@ export default function Home() {
         text.trim().length < 5
       ) {
         throw new Error(
-          'No readable information was detected in this document.'
+          'The document was prepared successfully, but no readable text was detected.'
         )
       }
 
+      // STEP 3: normalize into shifts
       const detected =
         parseUniversalTimecard(text)
 
@@ -745,7 +629,7 @@ export default function Home() {
         setMode('manual')
 
         setMessage(
-          'The document was read, but no reliable clock-in/clock-out pairs were detected. Please enter or correct the shifts manually.'
+          'The timecard was read, but reliable work-time pairs were not detected. Please enter or correct the values manually.'
         )
 
         return
@@ -762,11 +646,11 @@ export default function Home() {
 
       if (reviewCount > 0) {
         setMessage(
-          `${detected.length} shift(s) detected. ${reviewCount} row(s) differ from the hours printed on the timecard and should be reviewed.`
+          `${detected.length} shift(s) detected. ${reviewCount} should be reviewed before using the final total.`
         )
       } else {
         setMessage(
-          `${detected.length} shift(s) detected. Please verify the extracted values before using the total.`
+          `${detected.length} shift(s) detected. Please verify the extracted times.`
         )
       }
 
@@ -780,12 +664,12 @@ export default function Home() {
     } catch (error: any) {
       console.error(error)
 
-      setMode('manual')
       setRows(manualRows())
+      setMode('manual')
 
       setMessage(
         error?.message ||
-          'This timecard could not be read automatically.'
+          'This timecard could not be processed automatically.'
       )
     } finally {
       setReadingFile(false)
@@ -831,6 +715,14 @@ export default function Home() {
 
     setMessage('')
     setSubmitted(true)
+
+    setTimeout(() => {
+      document
+        .getElementById('results')
+        ?.scrollIntoView({
+          behavior: 'smooth',
+        })
+    }, 50)
   }
 
   function reset() {
@@ -838,6 +730,10 @@ export default function Home() {
     setMode('manual')
     setSubmitted(false)
     setMessage('')
+
+    if (fileRef.current) {
+      fileRef.current.value = ''
+    }
   }
 
   return (
@@ -856,11 +752,10 @@ export default function Home() {
         </h1>
 
         <p>
-          Upload a PDF, scanned timecard, screenshot,
-          or photo, or enter shifts manually. The
-          calculator detects work periods, handles
-          overnight shifts and breaks, and converts
-          worked time into decimal hours.
+          Upload a PDF, scan, screenshot, or photo,
+          or enter shifts manually. Uploaded
+          documents are prepared automatically
+          before work-time detection.
         </p>
 
         <div className="heroActions">
@@ -872,7 +767,7 @@ export default function Home() {
             }
           >
             {readingFile
-              ? 'Reading Timecard…'
+              ? 'Processing Timecard…'
               : 'Upload Timecard'}
           </button>
 
@@ -888,7 +783,7 @@ export default function Home() {
             ref={fileRef}
             hidden
             type="file"
-            accept=".pdf,.jpg,.jpeg,.png"
+            accept=".pdf,.jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff"
             onChange={(event) =>
               upload(
                 event.target.files?.[0]
@@ -908,8 +803,8 @@ export default function Home() {
           </h2>
 
           <p>
-            Review automatically detected shifts or
-            enter start time, end time, and break
+            Review detected shifts or enter
+            start time, end time, and break
             duration manually.
           </p>
         </div>
@@ -1013,7 +908,8 @@ export default function Home() {
                       color: '#7a8d8b',
                     }}
                   >
-                    Card: {row.printed_hours.toFixed(2)}
+                    Card:{' '}
+                    {row.printed_hours.toFixed(2)}
                   </small>
                 )}
               </div>
