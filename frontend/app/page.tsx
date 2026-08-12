@@ -1,12 +1,17 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import {
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 
 type Row = {
   day: string
   clock_in: string
   clock_out: string
   break_minutes: number
+  reported_hours?: number | null
 }
 
 const DAYS = [
@@ -19,16 +24,35 @@ const DAYS = [
   'Sunday',
 ]
 
+const DAY_PATTERNS: Record<
+  string,
+  RegExp
+> = {
+  Monday: /\b(?:mon|monday)\b/i,
+  Tuesday: /\b(?:tue|tues|tuesday)\b/i,
+  Wednesday: /\b(?:wed|wednesday)\b/i,
+  Thursday:
+    /\b(?:thu|thur|thurs|thursday)\b/i,
+  Friday: /\b(?:fri|friday)\b/i,
+  Saturday: /\b(?:sat|saturday)\b/i,
+  Sunday: /\b(?:sun|sunday)\b/i,
+}
+
 const defaultRows = (): Row[] =>
   DAYS.map((day) => ({
     day,
     clock_in: '',
     clock_out: '',
     break_minutes: 0,
+    reported_hours: null,
   }))
 
-function parseTime(value: string): number | null {
-  if (!value?.trim()) return null
+function parseTime(
+  value: string
+): number | null {
+  if (!value?.trim()) {
+    return null
+  }
 
   let text = value
     .trim()
@@ -38,35 +62,61 @@ function parseTime(value: string): number | null {
 
   let meridiem = ''
 
-  const meridiemMatch = text.match(/(AM|PM)$/)
+  const meridiemMatch =
+    text.match(/(AM|PM)$/)
 
   if (meridiemMatch) {
-    meridiem = meridiemMatch[1]
-    text = text.replace(/(AM|PM)$/, '')
+    meridiem =
+      meridiemMatch[1]
+
+    text = text.replace(
+      /(AM|PM)$/,
+      ''
+    )
   }
 
   let hours = 0
   let minutes = 0
 
   if (text.includes(':')) {
-    const parts = text.split(':')
+    const parts =
+      text.split(':')
 
-    if (parts.length !== 2) return null
+    if (parts.length !== 2) {
+      return null
+    }
 
-    hours = Number(parts[0])
-    minutes = Number(parts[1])
+    hours =
+      Number(parts[0])
+
+    minutes =
+      Number(parts[1])
   } else {
-    const digits = text.replace(/\D/g, '')
+    const digits =
+      text.replace(/\D/g, '')
 
     if (digits.length <= 2) {
       hours = Number(digits)
-      minutes = 0
-    } else if (digits.length === 3) {
-      hours = Number(digits.slice(0, 1))
-      minutes = Number(digits.slice(1))
-    } else if (digits.length === 4) {
-      hours = Number(digits.slice(0, 2))
-      minutes = Number(digits.slice(2))
+    } else if (
+      digits.length === 3
+    ) {
+      hours = Number(
+        digits.slice(0, 1)
+      )
+
+      minutes = Number(
+        digits.slice(1)
+      )
+    } else if (
+      digits.length === 4
+    ) {
+      hours = Number(
+        digits.slice(0, 2)
+      )
+
+      minutes = Number(
+        digits.slice(2)
+      )
     } else {
       return null
     }
@@ -81,64 +131,106 @@ function parseTime(value: string): number | null {
     return null
   }
 
-  // Allow input such as 17:50PM by treating it as 17:50.
-  if (hours > 12 && hours <= 23) {
+  /*
+    Accept 17:50PM as 17:50.
+  */
+  if (
+    hours > 12 &&
+    hours <= 23
+  ) {
     meridiem = ''
   }
 
   if (meridiem) {
-    if (hours < 1 || hours > 12) {
+    if (
+      hours < 1 ||
+      hours > 12
+    ) {
       return null
     }
 
-    if (meridiem === 'AM') {
-      if (hours === 12) {
-        hours = 0
-      }
+    if (
+      meridiem === 'AM' &&
+      hours === 12
+    ) {
+      hours = 0
     }
 
-    if (meridiem === 'PM') {
-      if (hours !== 12) {
-        hours += 12
-      }
+    if (
+      meridiem === 'PM' &&
+      hours !== 12
+    ) {
+      hours += 12
     }
-  } else {
-    if (hours < 0 || hours > 23) {
-      return null
-    }
+  } else if (
+    hours < 0 ||
+    hours > 23
+  ) {
+    return null
   }
 
-  return hours * 60 + minutes
+  return (
+    hours * 60 +
+    minutes
+  )
 }
 
-function getWorkedMinutes(row: Row): number {
-  const start = parseTime(row.clock_in)
-  const end = parseTime(row.clock_out)
+function getWorkedMinutes(
+  row: Row
+) {
+  const start =
+    parseTime(row.clock_in)
 
-  if (start === null || end === null) {
+  const end =
+    parseTime(row.clock_out)
+
+  if (
+    start === null ||
+    end === null
+  ) {
     return 0
   }
 
-  let workedMinutes = end - start
+  let worked =
+    end - start
 
-  // Overnight shift.
-  // Example: 6:40PM -> 7:13AM
-  if (workedMinutes < 0) {
-    workedMinutes += 24 * 60
+  /*
+    Overnight shift.
+  */
+  if (worked < 0) {
+    worked +=
+      24 * 60
   }
 
-  workedMinutes -= Number(row.break_minutes || 0)
+  worked -=
+    Number(
+      row.break_minutes || 0
+    )
 
-  return Math.max(0, workedMinutes)
+  return Math.max(
+    0,
+    worked
+  )
 }
 
-function decimalHours(minutes: number) {
-  return (minutes / 60).toFixed(2)
+function decimalHours(
+  minutes: number
+) {
+  return (
+    minutes / 60
+  ).toFixed(2)
 }
 
-function readableHours(minutes: number) {
-  const hours = Math.floor(minutes / 60)
-  const mins = minutes % 60
+function readableHours(
+  minutes: number
+) {
+  const hours =
+    Math.floor(
+      minutes / 60
+    )
+
+  const mins =
+    minutes % 60
 
   if (hours === 0) {
     return `${mins}m`
@@ -151,280 +243,711 @@ function readableHours(minutes: number) {
   return `${hours}h ${mins}m`
 }
 
-function extractRowsFromOcr(text: string): Row[] {
-  const detectedRows = defaultRows()
-
-  const lines = text
-    .replace(/\r/g, '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-
-  const dayPatterns = [
-    ['Monday', /\b(mon|monday)\b/i],
-    ['Tuesday', /\b(tue|tues|tuesday)\b/i],
-    ['Wednesday', /\b(wed|wednesday)\b/i],
-    ['Thursday', /\b(thu|thur|thurs|thursday)\b/i],
-    ['Friday', /\b(fri|friday)\b/i],
-    ['Saturday', /\b(sat|saturday)\b/i],
-    ['Sunday', /\b(sun|sunday)\b/i],
-  ] as const
-
-  function findTimes(line: string) {
-    const cleaned = line
-      .replace(/[Oo]/g, '0')
-      .replace(/[Il|]/g, '1')
-
-    const matches =
-      cleaned.match(
-        /\b(?:\d{1,2}[:.]\d{2}|\d{3,4})\s*(?:AM|PM)?\b/gi
-      ) || []
-
-    return matches
-      .map((value) =>
-        value
-          .toUpperCase()
-          .replace(/\s+/g, '')
-          .replace(/\./g, ':')
-      )
-      .filter((value) => parseTime(value) !== null)
-  }
-
-  dayPatterns.forEach(([day, pattern], index) => {
-    const matchingLineIndex = lines.findIndex((line) =>
-      pattern.test(line)
+function cleanOcrText(
+  text: string
+) {
+  return text
+    .replace(/[Oo](?=\d)/g, '0')
+    .replace(
+      /(?<=\d)[Oo]/g,
+      '0'
     )
-
-    if (matchingLineIndex === -1) return
-
-    /*
-      Sometimes OCR splits a row across multiple lines.
-      Combine the weekday line with the next two lines.
-    */
-    const combinedLine = [
-      lines[matchingLineIndex] || '',
-      lines[matchingLineIndex + 1] || '',
-      lines[matchingLineIndex + 2] || '',
-    ].join(' ')
-
-    const times = findTimes(combinedLine)
-
-    if (times.length >= 2) {
-      detectedRows[index].clock_in = times[0]
-      detectedRows[index].clock_out = times[1]
-    }
-
-    /*
-      Break detection is intentionally conservative.
-      It looks for explicit break/minute text first.
-    */
-    const breakMatch = combinedLine.match(
-      /break[^0-9]{0,12}(\d{1,3})\s*(?:min|mins|minutes)?/i
-    )
-
-    if (breakMatch) {
-      const value = Number(breakMatch[1])
-
-      if (value >= 0 && value <= 180) {
-        detectedRows[index].break_minutes = value
-      }
-    }
-
-    detectedRows[index].day = day
-  })
-
-  return detectedRows
+    .replace(/–|—/g, '-')
+    .replace(/\r/g, '\n')
 }
 
-async function runBrowserOcr(file: File): Promise<string> {
-  const ext = file.name.toLowerCase().split('.').pop()
+function findTimeRange(
+  text: string
+) {
+  const patterns = [
+    /\b(\d{1,2}:\d{2})\s*[-~]\s*(\d{1,2}:\d{2})\b/i,
 
-  if (['jpg', 'jpeg', 'png'].includes(ext || '')) {
-    const Tesseract = await import('tesseract.js')
+    /\b(\d{1,2}:\d{2}\s*(?:AM|PM))\s*[-~]\s*(\d{1,2}:\d{2}\s*(?:AM|PM))\b/i,
 
-    const result = await Tesseract.recognize(file, 'eng')
+    /\b(\d{3,4})\s*[-~]\s*(\d{3,4})\b/,
+  ]
 
-    return result.data.text || ''
+  for (
+    const pattern of patterns
+  ) {
+    const match =
+      text.match(pattern)
+
+    if (!match) {
+      continue
+    }
+
+    const start =
+      normalizeDetectedTime(
+        match[1]
+      )
+
+    const end =
+      normalizeDetectedTime(
+        match[2]
+      )
+
+    if (
+      parseTime(start) !== null &&
+      parseTime(end) !== null
+    ) {
+      return {
+        clock_in: start,
+        clock_out: end,
+      }
+    }
   }
 
-  if (ext === 'pdf') {
-    const pdfjs = await import('pdfjs-dist')
+  return null
+}
 
-    pdfjs.GlobalWorkerOptions.workerSrc =
-      `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`
+function normalizeDetectedTime(
+  value: string
+) {
+  let text = value
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '')
 
-    const data = new Uint8Array(
+  /*
+    OCR commonly reads:
+    0648 instead of 06:48
+  */
+  if (
+    /^\d{4}$/.test(text)
+  ) {
+    text =
+      `${text.slice(0, 2)}:${text.slice(2)}`
+  }
+
+  if (
+    /^\d{3}$/.test(text)
+  ) {
+    text =
+      `${text.slice(0, 1)}:${text.slice(1)}`
+  }
+
+  return text
+}
+
+function extractDailyTotal(
+  text: string
+) {
+  const match =
+    text.match(
+      /daily\s*total\s*:?\s*(\d+(?:\.\d+)?)/i
+    )
+
+  if (!match) {
+    return null
+  }
+
+  const value =
+    Number(match[1])
+
+  if (
+    Number.isNaN(value) ||
+    value < 0 ||
+    value > 24
+  ) {
+    return null
+  }
+
+  return value
+}
+
+function extractBreakMinutes(
+  text: string
+) {
+  const match =
+    text.match(
+      /(?:break|meal)[^0-9]{0,15}(\d{1,3})\s*(?:min|mins|minutes)?/i
+    )
+
+  if (!match) {
+    return 0
+  }
+
+  const value =
+    Number(match[1])
+
+  if (
+    Number.isNaN(value) ||
+    value < 0 ||
+    value > 180
+  ) {
+    return 0
+  }
+
+  return value
+}
+
+function extractMobileRows(
+  rawText: string
+): Row[] {
+  const rows =
+    defaultRows()
+
+  const text =
+    cleanOcrText(
+      rawText
+    )
+
+  const lines =
+    text
+      .split('\n')
+      .map(
+        (line) =>
+          line.trim()
+      )
+      .filter(Boolean)
+
+  DAYS.forEach(
+    (day, rowIndex) => {
+      const pattern =
+        DAY_PATTERNS[day]
+
+      const indexes: number[] =
+        []
+
+      lines.forEach(
+        (line, index) => {
+          if (
+            pattern.test(line)
+          ) {
+            indexes.push(
+              index
+            )
+          }
+        }
+      )
+
+      for (
+        const index of indexes
+      ) {
+        /*
+          A mobile card can span
+          several OCR lines.
+        */
+        const cardText =
+          lines
+            .slice(
+              Math.max(
+                0,
+                index - 1
+              ),
+              Math.min(
+                lines.length,
+                index + 9
+              )
+            )
+            .join(' ')
+
+        const timeRange =
+          findTimeRange(
+            cardText
+          )
+
+        if (timeRange) {
+          rows[
+            rowIndex
+          ].clock_in =
+            timeRange.clock_in
+
+          rows[
+            rowIndex
+          ].clock_out =
+            timeRange.clock_out
+        }
+
+        const dailyTotal =
+          extractDailyTotal(
+            cardText
+          )
+
+        if (
+          dailyTotal !== null
+        ) {
+          rows[
+            rowIndex
+          ].reported_hours =
+            dailyTotal
+        }
+
+        const breakMinutes =
+          extractBreakMinutes(
+            cardText
+          )
+
+        if (
+          breakMinutes > 0
+        ) {
+          rows[
+            rowIndex
+          ].break_minutes =
+            breakMinutes
+        }
+
+        if (
+          rows[rowIndex]
+            .clock_in &&
+          rows[rowIndex]
+            .clock_out
+        ) {
+          break
+        }
+      }
+    }
+  )
+
+  return rows
+}
+
+async function preprocessImage(
+  file: File
+): Promise<HTMLCanvasElement> {
+  const bitmap =
+    await createImageBitmap(
+      file
+    )
+
+  /*
+    Upscaling helps Tesseract
+    with small mobile screenshots.
+  */
+  const scale = 2
+
+  const canvas =
+    document.createElement(
+      'canvas'
+    )
+
+  canvas.width =
+    bitmap.width *
+    scale
+
+  canvas.height =
+    bitmap.height *
+    scale
+
+  const context =
+    canvas.getContext(
+      '2d'
+    )
+
+  if (!context) {
+    throw new Error(
+      'Could not prepare image.'
+    )
+  }
+
+  context.drawImage(
+    bitmap,
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  )
+
+  /*
+    Increase contrast and
+    convert toward grayscale.
+  */
+  const image =
+    context.getImageData(
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    )
+
+  const pixels =
+    image.data
+
+  for (
+    let i = 0;
+    i < pixels.length;
+    i += 4
+  ) {
+    const gray =
+      Math.round(
+        pixels[i] *
+          0.299 +
+          pixels[i + 1] *
+            0.587 +
+          pixels[i + 2] *
+            0.114
+      )
+
+    const contrasted =
+      gray < 165
+        ? Math.max(
+            0,
+            gray - 35
+          )
+        : Math.min(
+            255,
+            gray + 25
+          )
+
+    pixels[i] =
+      contrasted
+
+    pixels[i + 1] =
+      contrasted
+
+    pixels[i + 2] =
+      contrasted
+  }
+
+  context.putImageData(
+    image,
+    0,
+    0
+  )
+
+  return canvas
+}
+
+async function ocrCanvas(
+  canvas: HTMLCanvasElement
+) {
+  const Tesseract =
+    await import(
+      'tesseract.js'
+    )
+
+  const result =
+    await Tesseract.recognize(
+      canvas,
+      'eng',
+      {
+        logger: (
+          message: any
+        ) => {
+          console.log(
+            'OCR:',
+            message
+          )
+        },
+      }
+    )
+
+  return (
+    result.data.text ||
+    ''
+  )
+}
+
+async function runImageOcr(
+  file: File
+) {
+  const canvas =
+    await preprocessImage(
+      file
+    )
+
+  return ocrCanvas(
+    canvas
+  )
+}
+
+async function runPdfOcr(
+  file: File
+) {
+  const pdfjs =
+    await import(
+      'pdfjs-dist'
+    )
+
+  pdfjs.GlobalWorkerOptions.workerSrc =
+    `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`
+
+  const data =
+    new Uint8Array(
       await file.arrayBuffer()
     )
 
-    const pdf = await pdfjs.getDocument({
+  const pdf =
+    await pdfjs.getDocument({
       data,
     }).promise
 
-    let allText = ''
+  let allText = ''
 
-    for (
-      let pageNumber = 1;
-      pageNumber <= pdf.numPages;
-      pageNumber++
-    ) {
-      const page = await pdf.getPage(pageNumber)
+  for (
+    let pageNumber = 1;
+    pageNumber <=
+    pdf.numPages;
+    pageNumber++
+  ) {
+    const page =
+      await pdf.getPage(
+        pageNumber
+      )
 
-      /*
-        First try embedded PDF text.
-      */
-      const content = await page.getTextContent()
+    /*
+      Try text PDF first.
+    */
+    const textContent =
+      await page.getTextContent()
 
-      const embeddedText = content.items
-        .map((item: any) => item.str || '')
+    const embeddedText =
+      textContent.items
+        .map(
+          (item: any) =>
+            item.str || ''
+        )
         .join(' ')
         .trim()
 
-      if (embeddedText.length > 80) {
-        allText += '\n' + embeddedText
+    if (
+      embeddedText.length >
+      100
+    ) {
+      allText +=
+        '\n' +
+        embeddedText
+
+      continue
+    }
+
+    /*
+      Scanned PDF.
+    */
+    try {
+      const viewport =
+        page.getViewport({
+          scale: 2.5,
+        })
+
+      const canvas =
+        document.createElement(
+          'canvas'
+        )
+
+      const context =
+        canvas.getContext(
+          '2d'
+        )
+
+      if (!context) {
         continue
       }
 
-      /*
-        If there is not enough embedded text,
-        render the page and use Tesseract OCR.
-      */
-      try {
-        const viewport = page.getViewport({
-          scale: 2.2,
-        })
-
-        const canvas =
-          document.createElement('canvas')
-
-        const context =
-          canvas.getContext('2d')
-
-        if (!context) continue
-
-        canvas.width = Math.ceil(viewport.width)
-        canvas.height = Math.ceil(viewport.height)
-
-        await page.render({
-          canvas,
-          canvasContext: context,
-          viewport,
-        }).promise
-
-        const Tesseract =
-          await import('tesseract.js')
-
-        const result =
-          await Tesseract.recognize(
-            canvas,
-            'eng'
-          )
-
-        allText +=
-          '\n' + (result.data.text || '')
-      } catch (error) {
-        console.warn(
-          'PDF page OCR failed:',
-          error
+      canvas.width =
+        Math.ceil(
+          viewport.width
         )
-      }
-    }
 
-    return allText.trim()
+      canvas.height =
+        Math.ceil(
+          viewport.height
+        )
+
+      await page.render({
+        canvas,
+        canvasContext:
+          context,
+        viewport,
+      }).promise
+
+      allText +=
+        '\n' +
+        (await ocrCanvas(
+          canvas
+        ))
+    } catch (error) {
+      console.warn(
+        'PDF OCR error:',
+        error
+      )
+    }
   }
 
-  return ''
+  return allText
+}
+
+async function runBrowserOcr(
+  file: File
+) {
+  const ext =
+    file.name
+      .toLowerCase()
+      .split('.')
+      .pop()
+
+  if (
+    [
+      'jpg',
+      'jpeg',
+      'png',
+    ].includes(ext || '')
+  ) {
+    return runImageOcr(
+      file
+    )
+  }
+
+  if (ext === 'pdf') {
+    return runPdfOcr(
+      file
+    )
+  }
+
+  throw new Error(
+    'Please upload a PDF, JPG, JPEG, or PNG.'
+  )
 }
 
 export default function Home() {
-  const [rows, setRows] =
-    useState<Row[]>(defaultRows())
+  const [
+    rows,
+    setRows,
+  ] =
+    useState<Row[]>(
+      defaultRows()
+    )
 
-  const [entryMode, setEntryMode] =
-    useState<'upload' | 'manual'>('manual')
+  const [
+    entryMode,
+    setEntryMode,
+  ] = useState<
+    'upload' | 'manual'
+  >('manual')
 
-  const [submitted, setSubmitted] =
+  const [
+    submitted,
+    setSubmitted,
+  ] =
     useState(false)
 
-  const [message, setMessage] =
+  const [
+    message,
+    setMessage,
+  ] =
     useState('')
 
-  const [readingFile, setReadingFile] =
+  const [
+    readingFile,
+    setReadingFile,
+  ] =
     useState(false)
 
   const fileRef =
-    useRef<HTMLInputElement>(null)
+    useRef<HTMLInputElement>(
+      null
+    )
 
-  const dailyMinutes = useMemo(
-    () => rows.map(getWorkedMinutes),
-    [rows]
-  )
+  const dailyMinutes =
+    useMemo(
+      () =>
+        rows.map(
+          getWorkedMinutes
+        ),
+      [rows]
+    )
 
-  const weeklyMinutes = useMemo(
-    () =>
-      dailyMinutes.reduce(
-        (sum, minutes) =>
-          sum + minutes,
-        0
-      ),
-    [dailyMinutes]
-  )
+  const weeklyMinutes =
+    useMemo(
+      () =>
+        dailyMinutes.reduce(
+          (
+            total,
+            minutes
+          ) =>
+            total +
+            minutes,
+          0
+        ),
+      [dailyMinutes]
+    )
 
   function updateRow(
     index: number,
     key: keyof Row,
-    value: string | number
+    value:
+      | string
+      | number
+      | null
   ) {
-    /*
-      For manual entry, changing a value hides the
-      previous submitted result until Submit is clicked again.
-    */
-    if (entryMode === 'manual') {
-      setSubmitted(false)
+    if (
+      entryMode ===
+      'manual'
+    ) {
+      setSubmitted(
+        false
+      )
     }
 
-    /*
-      For uploaded OCR results, allow corrections
-      while continuing to show live calculations.
-    */
-    setRows((current) =>
-      current.map((row, rowIndex) =>
-        rowIndex === index
-          ? {
-              ...row,
-              [key]: value,
-            }
-          : row
-      )
+    setRows(
+      (current) =>
+        current.map(
+          (
+            row,
+            rowIndex
+          ) =>
+            rowIndex ===
+            index
+              ? {
+                  ...row,
+                  [key]:
+                    value,
+                }
+              : row
+        )
     )
   }
 
   function startManualEntry() {
-    setEntryMode('manual')
-    setSubmitted(false)
+    setEntryMode(
+      'manual'
+    )
+
+    setSubmitted(
+      false
+    )
+
     setMessage('')
 
     document
-      .getElementById('entries')
+      .getElementById(
+        'entries'
+      )
       ?.scrollIntoView({
-        behavior: 'smooth',
+        behavior:
+          'smooth',
       })
   }
 
-  async function upload(file?: File) {
-    if (!file) return
+  async function upload(
+    file?: File
+  ) {
+    if (!file) {
+      return
+    }
 
-    setEntryMode('upload')
-    setSubmitted(false)
-    setReadingFile(true)
+    setEntryMode(
+      'upload'
+    )
+
+    setSubmitted(
+      false
+    )
+
+    setReadingFile(
+      true
+    )
 
     setMessage(
-      'Reading your timecard. OCR may take several seconds…'
+      'Reading your timecard. This may take several seconds…'
     )
 
     try {
       const text =
-        await runBrowserOcr(file)
+        await runBrowserOcr(
+          file
+        )
 
       console.log(
         'OCR TEXT:',
@@ -433,22 +956,22 @@ export default function Home() {
 
       if (
         !text ||
-        text.trim().length < 10
+        text.trim()
+          .length < 10
       ) {
-        setRows(defaultRows())
-
-        setMessage(
-          "The timecard couldn't be read clearly. Please enter the times manually."
+        throw new Error(
+          'No readable text was detected.'
         )
-
-        setEntryMode('manual')
-        return
       }
 
       const detectedRows =
-        extractRowsFromOcr(text)
+        extractMobileRows(
+          text
+        )
 
-      setRows(detectedRows)
+      setRows(
+        detectedRows
+      )
 
       const detectedCount =
         detectedRows.filter(
@@ -457,54 +980,78 @@ export default function Home() {
             row.clock_out
         ).length
 
-      if (detectedCount > 0) {
+      if (
+        detectedCount >
+        0
+      ) {
         setMessage(
-          `OCR detected ${detectedCount} day(s). Please review the Clock In, Clock Out, and Break values before relying on the result.`
+          `OCR detected ${detectedCount} worked day(s). Please verify the detected values.`
         )
 
         /*
-          Upload mode calculates automatically.
+          Upload calculates automatically.
         */
-        setSubmitted(true)
+        setSubmitted(
+          true
+        )
 
-        setTimeout(() => {
-          document
-            .getElementById('entries')
-            ?.scrollIntoView({
-              behavior: 'smooth',
-            })
-        }, 100)
+        setTimeout(
+          () => {
+            document
+              .getElementById(
+                'results'
+              )
+              ?.scrollIntoView({
+                behavior:
+                  'smooth',
+              })
+          },
+          150
+        )
       } else {
         setMessage(
-          'OCR completed, but the daily times were not clear enough. Please enter or correct the values manually.'
+          'OCR completed, but the shift times were not clear enough. Please enter or correct them manually.'
         )
 
-        /*
-          Keep OCR result visible but allow manual corrections.
-        */
-        setEntryMode('manual')
+        setEntryMode(
+          'manual'
+        )
       }
-    } catch (error) {
-      console.error(error)
-
-      setRows(defaultRows())
-
-      setMessage(
-        'The timecard could not be read automatically. Please enter the times manually.'
+    } catch (
+      error: any
+    ) {
+      console.error(
+        error
       )
 
-      setEntryMode('manual')
-    } finally {
-      setReadingFile(false)
+      setRows(
+        defaultRows()
+      )
 
-      if (fileRef.current) {
-        fileRef.current.value = ''
+      setMessage(
+        error?.message ||
+          'The timecard could not be read automatically. Please enter the times manually.'
+      )
+
+      setEntryMode(
+        'manual'
+      )
+    } finally {
+      setReadingFile(
+        false
+      )
+
+      if (
+        fileRef.current
+      ) {
+        fileRef.current.value =
+          ''
       }
     }
   }
 
   function submitManual() {
-    const completedRows =
+    const completed =
       rows.filter(
         (row) =>
           row.clock_in.trim() &&
@@ -512,7 +1059,8 @@ export default function Home() {
       )
 
     if (
-      completedRows.length === 0
+      completed.length ===
+      0
     ) {
       setMessage(
         'Please enter at least one Clock In and Clock Out.'
@@ -521,8 +1069,8 @@ export default function Home() {
       return
     }
 
-    const invalidRow =
-      completedRows.find(
+    const invalid =
+      completed.find(
         (row) =>
           parseTime(
             row.clock_in
@@ -532,35 +1080,57 @@ export default function Home() {
           ) === null
       )
 
-    if (invalidRow) {
+    if (invalid) {
       setMessage(
-        `Please check the time format for ${invalidRow.day}. Use formats like 6:40AM, 5:50PM, 06:40, or 17:50.`
+        `Please check ${invalid.day}. Use time formats such as 6:40AM, 5:50PM, 06:40, or 17:50.`
       )
 
       return
     }
 
     setMessage('')
-    setSubmitted(true)
+    setSubmitted(
+      true
+    )
 
-    setTimeout(() => {
-      document
-        .getElementById('results')
-        ?.scrollIntoView({
-          behavior: 'smooth',
-        })
-    }, 100)
+    setTimeout(
+      () => {
+        document
+          .getElementById(
+            'results'
+          )
+          ?.scrollIntoView({
+            behavior:
+              'smooth',
+          })
+      },
+      100
+    )
   }
 
   function reset() {
-    setRows(defaultRows())
-    setEntryMode('manual')
-    setSubmitted(false)
-    setMessage('')
-    setReadingFile(false)
+    setRows(
+      defaultRows()
+    )
 
-    if (fileRef.current) {
-      fileRef.current.value = ''
+    setEntryMode(
+      'manual'
+    )
+
+    setSubmitted(
+      false
+    )
+
+    setMessage('')
+    setReadingFile(
+      false
+    )
+
+    if (
+      fileRef.current
+    ) {
+      fileRef.current.value =
+        ''
     }
   }
 
@@ -595,19 +1165,22 @@ export default function Home() {
           </span>
 
           <h1>
-            Calculate your timecard in seconds
+            Calculate your timecard
           </h1>
 
           <p>
-            Upload a timecard or enter your shifts
-            manually. Breaks, decimal hours, and
-            overnight shifts are handled automatically.
+            Upload a screenshot,
+            photo, or PDF of your
+            timecard, or enter your
+            shifts manually.
           </p>
 
           <div className="heroActions">
             <button
               className="primaryButton"
-              disabled={readingFile}
+              disabled={
+                readingFile
+              }
               onClick={() =>
                 fileRef.current?.click()
               }
@@ -619,7 +1192,9 @@ export default function Home() {
 
             <button
               className="secondaryButton"
-              disabled={readingFile}
+              disabled={
+                readingFile
+              }
               onClick={
                 startManualEntry
               }
@@ -632,7 +1207,9 @@ export default function Home() {
               hidden
               type="file"
               accept=".pdf,.jpg,.jpeg,.png"
-              onChange={(event) =>
+              onChange={(
+                event
+              ) =>
                 upload(
                   event.target
                     .files?.[0]
@@ -648,11 +1225,11 @@ export default function Home() {
           </span>
 
           <strong>
-            AM/PM & 24-hour
+            Screenshots & photos
           </strong>
 
           <small>
-            Overnight shifts supported
+            Plus PDF timecards
           </small>
         </div>
       </section>
@@ -662,20 +1239,18 @@ export default function Home() {
         id="entries"
       >
         <div className="sectionHeading">
-          <div>
-            <span className="sectionLabel">
-              TIME ENTRIES
-            </span>
+          <span className="sectionLabel">
+            TIME ENTRIES
+          </span>
 
-            <h2>
-              Enter your weekly shifts
-            </h2>
+          <h2>
+            Weekly shifts
+          </h2>
 
-            <p>
-              Use formats like 6:40AM,
-              5:50PM, 06:40, or 17:50.
-            </p>
-          </div>
+          <p>
+            Review OCR values or
+            enter times manually.
+          </p>
         </div>
 
         {message && (
@@ -686,100 +1261,141 @@ export default function Home() {
 
         <div className="desktopTable">
           <div className="tableHeader">
-            <div>Day</div>
-            <div>Clock In</div>
-            <div>Clock Out</div>
-            <div>Break</div>
-            <div>Hours</div>
+            <div>
+              Day
+            </div>
+
+            <div>
+              Clock In
+            </div>
+
+            <div>
+              Clock Out
+            </div>
+
+            <div>
+              Break
+            </div>
+
+            <div>
+              Hours
+            </div>
           </div>
 
           {rows.map(
-            (row, index) => (
-              <div
-                className="timeRow"
-                key={row.day}
-              >
-                <div className="dayCell">
-                  {row.day}
-                </div>
+            (row, index) => {
+              const minutes =
+                dailyMinutes[
+                  index
+                ]
 
-                <input
-                  className="timeInput"
-                  value={
-                    row.clock_in
+              return (
+                <div
+                  className="timeRow"
+                  key={
+                    row.day
                   }
-                  placeholder="e.g. 6:40AM"
-                  onChange={(
-                    event
-                  ) =>
-                    updateRow(
-                      index,
-                      'clock_in',
-                      event.target
-                        .value
-                    )
-                  }
-                />
+                >
+                  <div className="dayCell">
+                    {row.day}
+                  </div>
 
-                <input
-                  className="timeInput"
-                  value={
-                    row.clock_out
-                  }
-                  placeholder="e.g. 5:50PM"
-                  onChange={(
-                    event
-                  ) =>
-                    updateRow(
-                      index,
-                      'clock_out',
-                      event.target
-                        .value
-                    )
-                  }
-                />
-
-                <div className="breakInputWrap">
                   <input
                     className="timeInput"
-                    type="number"
-                    min="0"
-                    max="180"
                     value={
-                      row.break_minutes
+                      row.clock_in
                     }
+                    placeholder="e.g. 06:48"
                     onChange={(
                       event
                     ) =>
                       updateRow(
                         index,
-                        'break_minutes',
-                        Number(
-                          event.target
-                            .value
-                        )
+                        'clock_in',
+                        event.target
+                          .value
                       )
                     }
                   />
 
-                  <span>
-                    min
-                  </span>
-                </div>
-
-                <div className="hoursPreview">
-                  {dailyMinutes[
-                    index
-                  ] > 0
-                    ? decimalHours(
-                        dailyMinutes[
-                          index
-                        ]
+                  <input
+                    className="timeInput"
+                    value={
+                      row.clock_out
+                    }
+                    placeholder="e.g. 19:31"
+                    onChange={(
+                      event
+                    ) =>
+                      updateRow(
+                        index,
+                        'clock_out',
+                        event.target
+                          .value
                       )
-                    : '—'}
+                    }
+                  />
+
+                  <div className="breakInputWrap">
+                    <input
+                      className="timeInput"
+                      type="number"
+                      min="0"
+                      max="180"
+                      value={
+                        row.break_minutes
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        updateRow(
+                          index,
+                          'break_minutes',
+                          Number(
+                            event.target
+                              .value
+                          )
+                        )
+                      }
+                    />
+
+                    <span>
+                      min
+                    </span>
+                  </div>
+
+                  <div className="hoursPreview">
+                    {row.clock_in &&
+                    row.clock_out
+                      ? decimalHours(
+                          minutes
+                        )
+                      : '—'}
+
+                    {row.reported_hours !=
+                      null && (
+                      <small
+                        style={{
+                          display:
+                            'block',
+                          fontWeight:
+                            400,
+                          opacity:
+                            0.65,
+                          marginTop:
+                            3,
+                        }}
+                      >
+                        Card:{' '}
+                        {row.reported_hours.toFixed(
+                          2
+                        )}
+                      </small>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )
+              )
+            }
           )}
         </div>
 
@@ -872,7 +1488,10 @@ export default function Home() {
             </div>
 
             {rows.map(
-              (row, index) => {
+              (
+                row,
+                index
+              ) => {
                 if (
                   !row.clock_in ||
                   !row.clock_out
@@ -892,7 +1511,9 @@ export default function Home() {
                   >
                     <div>
                       <strong>
-                        {row.day}
+                        {
+                          row.day
+                        }
                       </strong>
                     </div>
 
@@ -969,10 +1590,8 @@ export default function Home() {
           </h3>
 
           <p>
-            Minutes are divided
-            by 60. For example,
-            33 minutes equals
-            0.55 hours.
+            33 minutes divided by
+            60 equals 0.55 hours.
           </p>
         </div>
 
@@ -986,9 +1605,9 @@ export default function Home() {
           </h3>
 
           <p>
-            Clocking out the
-            following morning is
-            handled automatically.
+            Shifts continuing into
+            the following day are
+            calculated automatically.
           </p>
         </div>
 
@@ -998,14 +1617,13 @@ export default function Home() {
           </span>
 
           <h3>
-            Break deduction
+            OCR review
           </h3>
 
           <p>
-            Break minutes are
-            deducted before
-            decimal hours are
-            calculated.
+            Always verify OCR-detected
+            times before relying on the
+            final result.
           </p>
         </div>
       </section>
