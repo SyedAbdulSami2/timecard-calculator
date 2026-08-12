@@ -1207,3 +1207,81 @@ button:disabled {
       #111;
   }
 }
+
+.universalTimeInput {
+  width: 100%;
+  height: 52px;
+
+  padding: 0 15px;
+
+  border: 1px solid var(--border-dark);
+  border-radius: 10px;
+
+  outline: none;
+
+  background: #fbfcfc;
+  color: var(--text);
+
+  font-family: "Manrope", sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.universalTimeInput:focus {
+  border-color: var(--primary);
+
+  background: white;
+
+  box-shadow:
+    0 0 0 3px rgba(11, 127, 115, 0.11);
+}
+
+.breakField {
+  position: relative;
+}
+
+.breakField input {
+  width: 100%;
+  height: 52px;
+
+  padding: 0 48px 0 15px;
+
+  border: 1px solid var(--border-dark);
+  border-radius: 10px;
+
+  outline: none;
+
+  background: #fbfcfc;
+
+  color: var(--text);
+
+  font-family: "Manrope", sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.breakField input:focus {
+  border-color: var(--primary);
+
+  box-shadow:
+    0 0 0 3px rgba(11, 127, 115, 0.11);
+}
+
+.breakField span {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+
+  transform: translateY(-50%);
+
+  color: var(--text-muted);
+
+  font-size: 10px;
+  font-weight: 700;
+
+  pointer-events: none;
+}
