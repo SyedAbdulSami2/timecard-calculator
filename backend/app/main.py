@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import io
-import os
 import re
 from typing import Any
 
@@ -28,25 +27,9 @@ app = FastAPI(
 # CORS
 # ============================================================
 
-frontend_origin = os.getenv(
-    "FRONTEND_ORIGIN",
-    "",
-).strip()
-
-allowed_origins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-]
-
-if frontend_origin:
-    allowed_origins.append(
-        frontend_origin
-    )
-
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -82,7 +65,7 @@ async def convert_timecard(
     file: UploadFile = File(...)
 ):
     """
-    Convert PDF/image timecards into standardized PNG pages.
+    Convert PDF/image timecards into standardized images.
 
     Supported:
     - PDF
@@ -124,6 +107,7 @@ async def convert_timecard(
         print(
             "Document conversion error:",
             repr(exc),
+            flush=True,
         )
 
         raise HTTPException(
@@ -136,19 +120,13 @@ async def convert_timecard(
 
 
 # ============================================================
-# ORIGINAL EXTRACTION ENDPOINT
+# EXTRACTION ENDPOINT
 # ============================================================
 
 @app.post("/extract")
 async def extract_timecard(
     file: UploadFile = File(...)
 ):
-    """
-    Existing CSV/XLSX extraction endpoint.
-
-    PDF/image OCR is handled through /convert-timecard.
-    """
-
     try:
         data = await file.read()
 
@@ -178,6 +156,7 @@ async def extract_timecard(
         print(
             "Extraction error:",
             repr(exc),
+            flush=True,
         )
 
         raise HTTPException(
@@ -204,7 +183,7 @@ def normalize_time(
     text = text.replace(".", ":")
     text = re.sub(r"\s+", "", text)
 
-    # OCR corrections.
+    # OCR corrections
     text = re.sub(
         r"(?<=\d)[Oo](?=\d)",
         "0",
@@ -267,8 +246,13 @@ def parse_time(
             return None
 
         try:
-            hour = int(parts[0])
-            minute = int(parts[1])
+            hour = int(
+                parts[0]
+            )
+
+            minute = int(
+                parts[1]
+            )
 
         except ValueError:
             return None
@@ -282,7 +266,10 @@ def parse_time(
 
         if len(digits) <= 2:
             try:
-                hour = int(digits)
+                hour = int(
+                    digits
+                )
+
                 minute = 0
 
             except ValueError:
@@ -350,9 +337,11 @@ def worked_minutes(
 
     minutes = end - start
 
-    # Overnight shift.
+    # Overnight shift
     if minutes < 0:
-        minutes += 24 * 60
+        minutes += (
+            24 * 60
+        )
 
     try:
         break_value = int(
@@ -386,21 +375,6 @@ def worked_minutes(
 async def calculate_timecard(
     payload: dict[str, Any],
 ):
-    """
-    Calculate all rows supplied by the frontend.
-
-    Expected shape:
-
-    {
-      "timecard": {
-        "rows": [...]
-      },
-      "overtime": {
-        "mode": "none"
-      }
-    }
-    """
-
     try:
         timecard = payload.get(
             "timecard",
@@ -455,9 +429,7 @@ async def calculate_timecard(
         total_overtime = 0.0
         total_hours = 0.0
 
-        for index, row in enumerate(
-            source_rows
-        ):
+        for row in source_rows:
             if not isinstance(
                 row,
                 dict,
@@ -497,10 +469,7 @@ async def calculate_timecard(
             regular_hours = hours
             overtime_hours = 0.0
 
-            if (
-                overtime_mode
-                == "daily"
-            ):
+            if overtime_mode == "daily":
                 regular_hours = min(
                     hours,
                     daily_threshold,
@@ -604,6 +573,7 @@ async def calculate_timecard(
         print(
             "Calculation error:",
             repr(exc),
+            flush=True,
         )
 
         raise HTTPException(
@@ -743,6 +713,7 @@ async def export_csv(
         print(
             "CSV export error:",
             repr(exc),
+            flush=True,
         )
 
         raise HTTPException(
