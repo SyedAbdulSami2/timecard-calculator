@@ -68,7 +68,9 @@ function normalizeTime(value: string) {
 }
 
 function parseTime(value: string): number | null {
-  if (!value?.trim()) return null
+  if (!value?.trim()) {
+    return null
+  }
 
   let text = normalizeTime(value)
   let meridiem = ''
@@ -82,7 +84,9 @@ function parseTime(value: string): number | null {
 
   const match = text.match(/^(\d{1,2}):(\d{2})$/)
 
-  if (!match) return null
+  if (!match) {
+    return null
+  }
 
   let hours = Number(match[1])
   const minutes = Number(match[2])
@@ -90,13 +94,16 @@ function parseTime(value: string): number | null {
   if (
     Number.isNaN(hours) ||
     Number.isNaN(minutes) ||
+    minutes < 0 ||
     minutes > 59
   ) {
     return null
   }
 
   if (meridiem) {
-    if (hours < 1 || hours > 12) return null
+    if (hours < 1 || hours > 12) {
+      return null
+    }
 
     if (hours === 12) {
       hours = 0
@@ -105,8 +112,10 @@ function parseTime(value: string): number | null {
     if (meridiem === 'PM') {
       hours += 12
     }
-  } else if (hours > 23) {
-    return null
+  } else {
+    if (hours < 0 || hours > 23) {
+      return null
+    }
   }
 
   return hours * 60 + minutes
@@ -126,11 +135,15 @@ function getShiftMinutes(
 
   let duration = end - start
 
+  // Overnight shift
   if (duration < 0) {
     duration += 24 * 60
   }
 
-  duration -= Math.max(0, breakMinutes)
+  duration -= Math.max(
+    0,
+    Number(breakMinutes || 0)
+  )
 
   return Math.max(0, duration)
 }
@@ -152,8 +165,16 @@ function isPlausibleShift(
     duration += 24 * 60
   }
 
-  if (duration < 15) return false
-  if (duration > 20 * 60) return false
+  // Avoid status-bar timestamps and OCR noise.
+  if (duration < 15) {
+    return false
+  }
+
+  // Allow long healthcare / overnight shifts,
+  // but reject impossible near-24-hour pairings.
+  if (duration > 20 * 60) {
+    return false
+  }
 
   return true
 }
@@ -166,14 +187,19 @@ function readableHours(minutes: number) {
   const hours = Math.floor(minutes / 60)
   const mins = minutes % 60
 
-  if (!hours) return `${mins}m`
-  if (!mins) return `${hours}h`
+  if (hours === 0) {
+    return `${mins}m`
+  }
+
+  if (mins === 0) {
+    return `${hours}h`
+  }
 
   return `${hours}h ${mins}m`
 }
 
 /* ======================================================
-   UNIVERSAL OCR PARSING
+   OCR TEXT HELPERS
 ====================================================== */
 
 function findTimes(text: string) {
@@ -189,24 +215,58 @@ function findTimes(text: string) {
 
   return matches
     .map(normalizeTime)
-    .filter((time) => parseTime(time) !== null)
+    .filter(
+      (time) =>
+        parseTime(time) !== null
+    )
 }
 
-function detectLabel(text: string, index: number) {
+function normalizeDay(value: string) {
+  const day = value.toLowerCase()
+
+  if (day.startsWith('mon')) {
+    return 'Monday'
+  }
+
+  if (day.startsWith('tue')) {
+    return 'Tuesday'
+  }
+
+  if (day.startsWith('wed')) {
+    return 'Wednesday'
+  }
+
+  if (day.startsWith('thu')) {
+    return 'Thursday'
+  }
+
+  if (day.startsWith('fri')) {
+    return 'Friday'
+  }
+
+  if (day.startsWith('sat')) {
+    return 'Saturday'
+  }
+
+  if (day.startsWith('sun')) {
+    return 'Sunday'
+  }
+
+  return value
+}
+
+function detectLabel(
+  text: string,
+  index: number
+) {
   const dayMatch = text.match(
     /\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Tues|Wed|Thu|Thur|Thurs|Fri|Sat|Sun)\b/i
   )
 
   if (dayMatch) {
-    const day = dayMatch[1].toLowerCase()
-
-    if (day.startsWith('mon')) return 'Monday'
-    if (day.startsWith('tue')) return 'Tuesday'
-    if (day.startsWith('wed')) return 'Wednesday'
-    if (day.startsWith('thu')) return 'Thursday'
-    if (day.startsWith('fri')) return 'Friday'
-    if (day.startsWith('sat')) return 'Saturday'
-    if (day.startsWith('sun')) return 'Sunday'
+    return normalizeDay(
+      dayMatch[1]
+    )
   }
 
   const dateMatch = text.match(
@@ -221,29 +281,44 @@ function detectLabel(text: string, index: number) {
 }
 
 function detectBreak(text: string) {
-  const first = text.match(
-    /(?:break|meal)[^0-9]{0,20}(\d{1,3})\s*(?:min|mins|minutes)?/i
+  const minutePattern = text.match(
+    /(?:break|meal|lunch)[^0-9]{0,20}(\d{1,3})\s*(?:min|mins|minutes)?/i
   )
 
-  if (first) {
-    const value = Number(first[1])
+  if (minutePattern) {
+    const value = Number(
+      minutePattern[1]
+    )
 
-    if (value >= 0 && value <= 180) {
+    if (
+      !Number.isNaN(value) &&
+      value >= 0 &&
+      value <= 180
+    ) {
       return value
     }
   }
 
-  const second = text.match(
-    /(\d{1,2})\s*:\s*(\d{2})\s*(?:break|meal)/i
+  const durationPattern = text.match(
+    /(\d{1,2})\s*:\s*(\d{2})\s*(?:break|meal|lunch)/i
   )
 
-  if (second) {
-    const hours = Number(second[1])
-    const minutes = Number(second[2])
+  if (durationPattern) {
+    const hours = Number(
+      durationPattern[1]
+    )
 
-    const total = hours * 60 + minutes
+    const minutes = Number(
+      durationPattern[2]
+    )
 
-    if (total <= 180) {
+    const total =
+      hours * 60 + minutes
+
+    if (
+      total >= 0 &&
+      total <= 180
+    ) {
       return total
     }
   }
@@ -251,19 +326,26 @@ function detectBreak(text: string) {
   return 0
 }
 
-function detectPrintedHours(text: string) {
+function detectPrintedHours(
+  text: string
+) {
   const patterns = [
     /daily\s*total\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
+    /hours?\s*(?:worked)?\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
     /total\s*hours?\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
-    /hours?\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
   ]
 
   for (const pattern of patterns) {
-    const match = text.match(pattern)
+    const match =
+      text.match(pattern)
 
-    if (!match) continue
+    if (!match) {
+      continue
+    }
 
-    const value = Number(match[1])
+    const value = Number(
+      match[1]
+    )
 
     if (
       !Number.isNaN(value) &&
@@ -279,29 +361,47 @@ function detectPrintedHours(text: string) {
 
 function addCandidate(
   result: DetectedShift[],
-  text: string,
+  sourceText: string,
   start: string,
   end: string
 ) {
-  if (!isPlausibleShift(start, end)) {
+  const normalizedStart =
+    normalizeTime(start)
+
+  const normalizedEnd =
+    normalizeTime(end)
+
+  if (
+    !isPlausibleShift(
+      normalizedStart,
+      normalizedEnd
+    )
+  ) {
     return
   }
 
-  const normalizedStart = normalizeTime(start)
-  const normalizedEnd = normalizeTime(end)
+  const duplicate =
+    result.some(
+      (row) =>
+        row.clock_in ===
+          normalizedStart &&
+        row.clock_out ===
+          normalizedEnd
+    )
 
-  const duplicate = result.some(
-    (row) =>
-      row.clock_in === normalizedStart &&
-      row.clock_out === normalizedEnd
-  )
+  if (duplicate) {
+    return
+  }
 
-  if (duplicate) return
+  const breakMinutes =
+    detectBreak(sourceText)
 
-  const breakMinutes = detectBreak(text)
-  const printedHours = detectPrintedHours(text)
+  const printedHours =
+    detectPrintedHours(
+      sourceText
+    )
 
-  const calculated =
+  const calculatedHours =
     getShiftMinutes(
       normalizedStart,
       normalizedEnd,
@@ -310,125 +410,225 @@ function addCandidate(
 
   const needsReview =
     printedHours !== null &&
-    Math.abs(calculated - printedHours) > 0.25
+    Math.abs(
+      calculatedHours -
+        printedHours
+    ) > 0.25
 
   result.push({
-    label: detectLabel(text, result.length),
-    clock_in: normalizedStart,
-    clock_out: normalizedEnd,
-    break_minutes: breakMinutes,
-    printed_hours: printedHours,
-    needs_review: needsReview,
+    label: detectLabel(
+      sourceText,
+      result.length
+    ),
+
+    clock_in:
+      normalizedStart,
+
+    clock_out:
+      normalizedEnd,
+
+    break_minutes:
+      breakMinutes,
+
+    printed_hours:
+      printedHours,
+
+    needs_review:
+      needsReview,
   })
 }
 
-function parseUniversalTimecard(text: string) {
+/* ======================================================
+   UNIVERSAL TIMECARD PARSER
+====================================================== */
+
+function parseUniversalTimecard(
+  text: string
+) {
   const cleaned = text
     .replace(/\r/g, '\n')
     .replace(/[–—−]/g, '-')
 
   const lines = cleaned
     .split('\n')
-    .map((line) => line.trim())
+    .map(
+      (line) =>
+        line.trim()
+    )
     .filter(Boolean)
 
-  const detected: DetectedShift[] = []
+  const detected:
+    DetectedShift[] = []
 
-  // Pass 1: same OCR line
+  /*
+   * PASS 1
+   *
+   * Prefer rows that already contain:
+   *
+   * Monday 06:48 19:31
+   * Jan 05 06:48 19:31
+   * 06:48 - 19:31
+   */
   for (const line of lines) {
-    const times = findTimes(line)
+    const times =
+      findTimes(line)
 
-    if (times.length >= 2) {
-      for (let i = 0; i + 1 < times.length; i += 2) {
-        addCandidate(
-          detected,
-          line,
-          times[i],
-          times[i + 1]
-        )
-      }
+    if (times.length < 2) {
+      continue
     }
-  }
-
-  // Pass 2: nearby OCR lines
-  if (detected.length === 0) {
-    for (let i = 0; i < lines.length; i++) {
-      const block = lines
-        .slice(i, i + 4)
-        .join(' ')
-
-      const times = findTimes(block)
-
-      if (times.length < 2) continue
-
-      for (let j = 0; j + 1 < times.length; j += 2) {
-        addCandidate(
-          detected,
-          block,
-          times[j],
-          times[j + 1]
-        )
-      }
-    }
-  }
-
-  // Pass 3: completely unlabeled document
-  if (detected.length === 0) {
-    const allTimes = findTimes(cleaned)
 
     for (
       let index = 0;
-      index + 1 < allTimes.length;
+      index + 1 < times.length;
+      index += 2
+    ) {
+      addCandidate(
+        detected,
+        line,
+        times[index],
+        times[index + 1]
+      )
+    }
+  }
+
+  /*
+   * PASS 2
+   *
+   * OCR frequently breaks a single
+   * timecard row across adjacent lines.
+   *
+   * Example:
+   *
+   * Monday
+   * 06:48
+   * 19:31
+   * Daily total 12.72
+   */
+  if (detected.length === 0) {
+    for (
+      let index = 0;
+      index < lines.length;
+      index++
+    ) {
+      const block = lines
+        .slice(
+          index,
+          index + 5
+        )
+        .join(' ')
+
+      const times =
+        findTimes(block)
+
+      if (times.length < 2) {
+        continue
+      }
+
+      for (
+        let timeIndex = 0;
+        timeIndex + 1 <
+        times.length;
+        timeIndex += 2
+      ) {
+        addCandidate(
+          detected,
+          block,
+          times[timeIndex],
+          times[
+            timeIndex + 1
+          ]
+        )
+      }
+    }
+  }
+
+  /*
+   * PASS 3
+   *
+   * If there are no day/date labels,
+   * pair remaining valid times.
+   */
+  if (detected.length === 0) {
+    const allTimes =
+      findTimes(cleaned)
+
+    for (
+      let index = 0;
+      index + 1 <
+      allTimes.length;
       index += 2
     ) {
       addCandidate(
         detected,
         '',
         allTimes[index],
-        allTimes[index + 1]
+        allTimes[
+          index + 1
+        ]
       )
     }
   }
 
-  return detected.map((row, index) => ({
-    ...row,
-    label:
-      row.label.startsWith('Shift ')
-        ? `Shift ${index + 1}`
-        : row.label,
-  }))
+  return detected.map(
+    (row, index) => ({
+      ...row,
+
+      label:
+        row.label.startsWith(
+          'Shift '
+        )
+          ? `Shift ${index + 1}`
+          : row.label,
+    })
+  )
 }
 
 /* ======================================================
-   BACKEND CONVERTER
+   BACKEND DOCUMENT CONVERTER
 ====================================================== */
 
 async function convertUploadedDocument(
   file: File
 ): Promise<ConvertedPage[]> {
-  const form = new FormData()
+  const form =
+    new FormData()
 
-  form.append('file', file)
-
-  const response = await fetch(
-    `${API}/convert-timecard`,
-    {
-      method: 'POST',
-      body: form,
-    }
+  form.append(
+    'file',
+    file
   )
 
-  const data = await response.json()
+  const response =
+    await fetch(
+      `${API}/convert-timecard`,
+      {
+        method: 'POST',
+        body: form,
+      }
+    )
+
+  let data: any
+
+  try {
+    data =
+      await response.json()
+  } catch {
+    throw new Error(
+      'The document converter returned an invalid response.'
+    )
+  }
 
   if (!response.ok) {
     throw new Error(
-      data.detail ||
+      data?.detail ||
         'Could not prepare this document.'
     )
   }
 
   if (
-    !Array.isArray(data.pages) ||
+    !Array.isArray(
+      data.pages
+    ) ||
     data.pages.length === 0
   ) {
     throw new Error(
@@ -440,25 +640,37 @@ async function convertUploadedDocument(
 }
 
 /* ======================================================
-   OCR CONVERTED PAGES
+   OCR STANDARDIZED PAGES
 ====================================================== */
 
 async function recognizeConvertedPage(
   imageUrl: string
 ) {
-  const Tesseract = await import('tesseract.js')
+  const Tesseract =
+    await import(
+      'tesseract.js'
+    )
 
-  const result = await Tesseract.recognize(
-    imageUrl,
-    'eng',
-    {
-      logger: (progress: any) => {
-        console.log('OCR:', progress)
-      },
-    }
+  const result =
+    await Tesseract.recognize(
+      imageUrl,
+      'eng',
+      {
+        logger: (
+          progress: any
+        ) => {
+          console.log(
+            'OCR progress:',
+            progress
+          )
+        },
+      }
+    )
+
+  return (
+    result.data.text ||
+    ''
   )
-
-  return result.data.text || ''
 }
 
 async function readConvertedPages(
@@ -480,12 +692,13 @@ async function readConvertedPages(
       pages.length
     )
 
-    const text =
+    const pageText =
       await recognizeConvertedPage(
         pages[index].image
       )
 
-    fullText += `\n${text}`
+    fullText +=
+      `\n${pageText}`
   }
 
   return fullText.trim()
@@ -496,105 +709,190 @@ async function readConvertedPages(
 ====================================================== */
 
 export default function Home() {
-  const [rows, setRows] =
-    useState<DetectedShift[]>(manualRows())
+  const [
+    rows,
+    setRows,
+  ] =
+    useState<
+      DetectedShift[]
+    >(
+      manualRows()
+    )
 
-  const [mode, setMode] =
-    useState<'manual' | 'upload'>('manual')
+  const [
+    mode,
+    setMode,
+  ] =
+    useState<
+      'manual' | 'upload'
+    >(
+      'manual'
+    )
 
-  const [submitted, setSubmitted] =
+  const [
+    submitted,
+    setSubmitted,
+  ] =
     useState(false)
 
-  const [message, setMessage] =
+  const [
+    message,
+    setMessage,
+  ] =
     useState('')
 
-  const [readingFile, setReadingFile] =
+  const [
+    readingFile,
+    setReadingFile,
+  ] =
     useState(false)
 
   const fileRef =
-    useRef<HTMLInputElement>(null)
+    useRef<
+      HTMLInputElement
+    >(null)
 
-  const workedMinutes = useMemo(
-    () =>
-      rows.map((row) =>
-        getShiftMinutes(
-          row.clock_in,
-          row.clock_out,
-          row.break_minutes
-        )
-      ),
-    [rows]
-  )
+  const workedMinutes =
+    useMemo(
+      () =>
+        rows.map(
+          (row) =>
+            getShiftMinutes(
+              row.clock_in,
+              row.clock_out,
+              row.break_minutes
+            )
+        ),
+      [rows]
+    )
 
-  const totalMinutes = useMemo(
-    () =>
-      workedMinutes.reduce(
-        (total, value) =>
-          total + value,
-        0
-      ),
-    [workedMinutes]
-  )
+  const totalMinutes =
+    useMemo(
+      () =>
+        workedMinutes.reduce(
+          (
+            total,
+            minutes
+          ) =>
+            total +
+            minutes,
+          0
+        ),
+      [
+        workedMinutes,
+      ]
+    )
 
   function updateRow(
     index: number,
-    key: keyof DetectedShift,
+    key:
+      keyof DetectedShift,
     value: any
   ) {
-    setRows((current) =>
-      current.map((row, rowIndex) =>
-        rowIndex === index
-          ? {
-              ...row,
-              [key]: value,
-            }
-          : row
-      )
+    setRows(
+      (current) =>
+        current.map(
+          (
+            row,
+            rowIndex
+          ) =>
+            rowIndex ===
+            index
+              ? {
+                  ...row,
+                  [key]:
+                    value,
+                }
+              : row
+        )
     )
 
     setSubmitted(false)
   }
 
   function startManual() {
-    setRows(manualRows())
-    setMode('manual')
-    setSubmitted(false)
+    setRows(
+      manualRows()
+    )
+
+    setMode(
+      'manual'
+    )
+
+    setSubmitted(
+      false
+    )
+
     setMessage('')
 
-    setTimeout(() => {
-      document
-        .getElementById('calculator')
-        ?.scrollIntoView({
-          behavior: 'smooth',
-        })
-    }, 50)
+    setTimeout(
+      () => {
+        document
+          .getElementById(
+            'calculator'
+          )
+          ?.scrollIntoView(
+            {
+              behavior:
+                'smooth',
+            }
+          )
+      },
+      50
+    )
   }
 
-  async function upload(file?: File) {
-    if (!file) return
+  async function upload(
+    file?: File
+  ) {
+    if (!file) {
+      return
+    }
 
-    setMode('upload')
-    setSubmitted(false)
-    setReadingFile(true)
+    setMode(
+      'upload'
+    )
+
+    setSubmitted(
+      false
+    )
+
+    setReadingFile(
+      true
+    )
 
     setMessage(
       'Preparing your timecard…'
     )
 
     try {
-      // STEP 1: backend converts source document
+      /*
+       * STEP 1
+       *
+       * Convert PDF/photo/scan/etc.
+       * into standardized JPEG pages.
+       */
       const pages =
-        await convertUploadedDocument(file)
+        await convertUploadedDocument(
+          file
+        )
 
       setMessage(
         `Document prepared. Reading ${pages.length} page(s)…`
       )
 
-      // STEP 2: OCR standardized images
+      /*
+       * STEP 2
+       *
+       * OCR every returned page.
+       */
       const text =
         await readConvertedPages(
           pages,
-          (current, total) => {
+          (
+            current,
+            total
+          ) => {
             setMessage(
               `Reading timecard page ${current} of ${total}…`
             )
@@ -608,35 +906,61 @@ export default function Home() {
 
       if (
         !text ||
-        text.trim().length < 5
+        text.trim().length <
+          5
       ) {
         throw new Error(
           'The document was prepared successfully, but no readable text was detected.'
         )
       }
 
-      // STEP 3: normalize into shifts
+      /*
+       * STEP 3
+       *
+       * Turn arbitrary OCR into
+       * normalized work shifts.
+       */
       const detected =
-        parseUniversalTimecard(text)
+        parseUniversalTimecard(
+          text
+        )
 
       console.log(
         'DETECTED SHIFTS:',
         detected
       )
 
-      if (!detected.length) {
-        setRows(manualRows())
-        setMode('manual')
+      if (
+        detected.length ===
+        0
+      ) {
+        setRows(
+          manualRows()
+        )
+
+        setMode(
+          'manual'
+        )
 
         setMessage(
-          'The timecard was read, but reliable work-time pairs were not detected. Please enter or correct the values manually.'
+          'The document was read successfully, but reliable clock-in and clock-out pairs were not detected. Please enter or correct the shifts manually.'
         )
 
         return
       }
 
-      setRows(detected)
-      setSubmitted(true)
+      /*
+       * STEP 4
+       *
+       * Populate calculator.
+       */
+      setRows(
+        detected
+      )
+
+      setSubmitted(
+        true
+      )
 
       const reviewCount =
         detected.filter(
@@ -644,9 +968,12 @@ export default function Home() {
             row.needs_review
         ).length
 
-      if (reviewCount > 0) {
+      if (
+        reviewCount >
+        0
+      ) {
         setMessage(
-          `${detected.length} shift(s) detected. ${reviewCount} should be reviewed before using the final total.`
+          `${detected.length} shift(s) detected. ${reviewCount} row(s) should be reviewed before using the final total.`
         )
       } else {
         setMessage(
@@ -654,28 +981,54 @@ export default function Home() {
         )
       }
 
-      setTimeout(() => {
-        document
-          .getElementById('results')
-          ?.scrollIntoView({
-            behavior: 'smooth',
-          })
-      }, 150)
-    } catch (error: any) {
-      console.error(error)
+      setTimeout(
+        () => {
+          document
+            .getElementById(
+              'results'
+            )
+            ?.scrollIntoView(
+              {
+                behavior:
+                  'smooth',
+              }
+            )
+        },
+        150
+      )
+    } catch (
+      error: any
+    ) {
+      console.error(
+        error
+      )
 
-      setRows(manualRows())
-      setMode('manual')
+      setRows(
+        manualRows()
+      )
+
+      setMode(
+        'manual'
+      )
+
+      setSubmitted(
+        false
+      )
 
       setMessage(
         error?.message ||
           'This timecard could not be processed automatically.'
       )
     } finally {
-      setReadingFile(false)
+      setReadingFile(
+        false
+      )
 
-      if (fileRef.current) {
-        fileRef.current.value = ''
+      if (
+        fileRef.current
+      ) {
+        fileRef.current.value =
+          ''
       }
     }
   }
@@ -688,7 +1041,9 @@ export default function Home() {
           row.clock_out.trim()
       )
 
-    if (!completeRows.length) {
+    if (
+      !completeRows.length
+    ) {
       setMessage(
         'Please enter at least one complete work shift.'
       )
@@ -714,25 +1069,48 @@ export default function Home() {
     }
 
     setMessage('')
-    setSubmitted(true)
 
-    setTimeout(() => {
-      document
-        .getElementById('results')
-        ?.scrollIntoView({
-          behavior: 'smooth',
-        })
-    }, 50)
+    setSubmitted(
+      true
+    )
+
+    setTimeout(
+      () => {
+        document
+          .getElementById(
+            'results'
+          )
+          ?.scrollIntoView(
+            {
+              behavior:
+                'smooth',
+            }
+          )
+      },
+      50
+    )
   }
 
   function reset() {
-    setRows(manualRows())
-    setMode('manual')
-    setSubmitted(false)
+    setRows(
+      manualRows()
+    )
+
+    setMode(
+      'manual'
+    )
+
+    setSubmitted(
+      false
+    )
+
     setMessage('')
 
-    if (fileRef.current) {
-      fileRef.current.value = ''
+    if (
+      fileRef.current
+    ) {
+      fileRef.current.value =
+        ''
     }
   }
 
@@ -752,16 +1130,19 @@ export default function Home() {
         </h1>
 
         <p>
-          Upload a PDF, scan, screenshot, or photo,
-          or enter shifts manually. Uploaded
-          documents are prepared automatically
-          before work-time detection.
+          Upload a PDF, scanned timecard,
+          screenshot, or photo, or enter your
+          shifts manually. Uploaded documents are
+          prepared automatically before work-time
+          detection.
         </p>
 
         <div className="heroActions">
           <button
             className="primaryAction"
-            disabled={readingFile}
+            disabled={
+              readingFile
+            }
             onClick={() =>
               fileRef.current?.click()
             }
@@ -773,8 +1154,12 @@ export default function Home() {
 
           <button
             className="secondaryAction"
-            disabled={readingFile}
-            onClick={startManual}
+            disabled={
+              readingFile
+            }
+            onClick={
+              startManual
+            }
           >
             Enter Hours Manually
           </button>
@@ -784,9 +1169,12 @@ export default function Home() {
             hidden
             type="file"
             accept=".pdf,.jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff"
-            onChange={(event) =>
+            onChange={(
+              event
+            ) =>
               upload(
-                event.target.files?.[0]
+                event.target
+                  .files?.[0]
               )
             }
           />
@@ -803,8 +1191,8 @@ export default function Home() {
           </h2>
 
           <p>
-            Review detected shifts or enter
-            start time, end time, and break
+            Review automatically detected shifts
+            or enter start time, end time, and break
             duration manually.
           </p>
         </div>
@@ -817,111 +1205,163 @@ export default function Home() {
 
         <div className="timeTable">
           <div className="timeTableHeader">
-            <div>Day / Shift</div>
-            <div>Clock In</div>
-            <div>Clock Out</div>
-            <div>Break</div>
-            <div>Hours</div>
+            <div>
+              Day / Shift
+            </div>
+
+            <div>
+              Clock In
+            </div>
+
+            <div>
+              Clock Out
+            </div>
+
+            <div>
+              Break
+            </div>
+
+            <div>
+              Hours
+            </div>
           </div>
 
-          {rows.map((row, index) => (
-            <div
-              className="timeTableRow"
-              key={`${row.label}-${index}`}
-            >
-              <div className="shiftLabel">
-                {row.label}
+          {rows.map(
+            (
+              row,
+              index
+            ) => (
+              <div
+                className="timeTableRow"
+                key={`${row.label}-${index}`}
+              >
+                <div className="shiftLabel">
+                  {row.label}
 
-                {row.needs_review && (
-                  <small
-                    style={{
-                      display: 'block',
-                      color: '#9a6818',
-                      marginTop: 3,
-                    }}
-                  >
-                    Review
-                  </small>
-                )}
-              </div>
+                  {row.needs_review && (
+                    <small
+                      style={{
+                        display:
+                          'block',
+                        color:
+                          '#9a6818',
+                        marginTop:
+                          3,
+                      }}
+                    >
+                      Review
+                    </small>
+                  )}
+                </div>
 
-              <input
-                className="universalTimeInput"
-                value={row.clock_in}
-                placeholder="06:48"
-                onChange={(event) =>
-                  updateRow(
-                    index,
-                    'clock_in',
-                    event.target.value
-                  )
-                }
-              />
-
-              <input
-                className="universalTimeInput"
-                value={row.clock_out}
-                placeholder="19:31"
-                onChange={(event) =>
-                  updateRow(
-                    index,
-                    'clock_out',
-                    event.target.value
-                  )
-                }
-              />
-
-              <div className="breakField">
                 <input
-                  type="number"
-                  min="0"
-                  max="180"
-                  value={row.break_minutes}
-                  onChange={(event) =>
+                  className="universalTimeInput"
+                  value={
+                    row.clock_in
+                  }
+                  placeholder="06:48"
+                  onChange={(
+                    event
+                  ) =>
                     updateRow(
                       index,
-                      'break_minutes',
-                      Number(
-                        event.target.value
-                      )
+                      'clock_in',
+                      event.target
+                        .value
                     )
                   }
                 />
 
-                <span>min</span>
-              </div>
-
-              <div className="dailyHours">
-                {row.clock_in &&
-                row.clock_out
-                  ? decimalHours(
-                      workedMinutes[index]
+                <input
+                  className="universalTimeInput"
+                  value={
+                    row.clock_out
+                  }
+                  placeholder="19:31"
+                  onChange={(
+                    event
+                  ) =>
+                    updateRow(
+                      index,
+                      'clock_out',
+                      event.target
+                        .value
                     )
-                  : '—'}
+                  }
+                />
 
-                {row.printed_hours != null && (
-                  <small
-                    style={{
-                      display: 'block',
-                      fontSize: 10,
-                      marginTop: 3,
-                      color: '#7a8d8b',
-                    }}
-                  >
-                    Card:{' '}
-                    {row.printed_hours.toFixed(2)}
-                  </small>
-                )}
+                <div className="breakField">
+                  <input
+                    type="number"
+                    min="0"
+                    max="180"
+                    value={
+                      row.break_minutes
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      updateRow(
+                        index,
+                        'break_minutes',
+                        Number(
+                          event
+                            .target
+                            .value
+                        )
+                      )
+                    }
+                  />
+
+                  <span>
+                    min
+                  </span>
+                </div>
+
+                <div className="dailyHours">
+                  {row.clock_in &&
+                  row.clock_out
+                    ? decimalHours(
+                        workedMinutes[
+                          index
+                        ]
+                      )
+                    : '—'}
+
+                  {row.printed_hours !=
+                    null && (
+                    <small
+                      style={{
+                        display:
+                          'block',
+                        fontSize:
+                          10,
+                        marginTop:
+                          3,
+                        color:
+                          '#7a8d8b',
+                      }}
+                    >
+                      Card:{' '}
+                      {row.printed_hours.toFixed(
+                        2
+                      )}
+                    </small>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          )}
         </div>
 
         <div className="calculatorActions">
-          {mode === 'manual' && (
+          {mode ===
+            'manual' && (
             <button
               className="calculateButton"
-              onClick={calculateManual}
+              onClick={
+                calculateManual
+              }
             >
               Calculate Hours
             </button>
@@ -958,70 +1398,94 @@ export default function Home() {
               </small>
 
               <strong>
-                {decimalHours(totalMinutes)}
+                {decimalHours(
+                  totalMinutes
+                )}
               </strong>
 
               <span>
-                {readableHours(totalMinutes)}
+                {readableHours(
+                  totalMinutes
+                )}
               </span>
             </div>
           </div>
 
           <div className="summaryTable">
             <div className="summaryHeader">
-              <div>Day / Shift</div>
-              <div>Work Period</div>
-              <div>Break</div>
-              <div>Hours</div>
+              <div>
+                Day / Shift
+              </div>
+
+              <div>
+                Work Period
+              </div>
+
+              <div>
+                Break
+              </div>
+
+              <div>
+                Hours
+              </div>
             </div>
 
-            {rows.map((row, index) => {
-              if (
-                !row.clock_in ||
-                !row.clock_out
-              ) {
-                return null
+            {rows.map(
+              (
+                row,
+                index
+              ) => {
+                if (
+                  !row.clock_in ||
+                  !row.clock_out
+                ) {
+                  return null
+                }
+
+                return (
+                  <div
+                    className="summaryRow"
+                    key={`summary-${index}`}
+                  >
+                    <div>
+                      <strong>
+                        {row.label}
+                      </strong>
+                    </div>
+
+                    <div>
+                      {row.clock_in}
+                      {' → '}
+                      {row.clock_out}
+                    </div>
+
+                    <div>
+                      {row.break_minutes
+                        ? `${row.break_minutes} min`
+                        : '—'}
+                    </div>
+
+                    <div className="summaryHours">
+                      <strong>
+                        {decimalHours(
+                          workedMinutes[
+                            index
+                          ]
+                        )}
+                      </strong>
+
+                      <small>
+                        {readableHours(
+                          workedMinutes[
+                            index
+                          ]
+                        )}
+                      </small>
+                    </div>
+                  </div>
+                )
               }
-
-              return (
-                <div
-                  className="summaryRow"
-                  key={`summary-${index}`}
-                >
-                  <div>
-                    <strong>
-                      {row.label}
-                    </strong>
-                  </div>
-
-                  <div>
-                    {row.clock_in}
-                    {' → '}
-                    {row.clock_out}
-                  </div>
-
-                  <div>
-                    {row.break_minutes
-                      ? `${row.break_minutes} min`
-                      : '—'}
-                  </div>
-
-                  <div className="summaryHours">
-                    <strong>
-                      {decimalHours(
-                        workedMinutes[index]
-                      )}
-                    </strong>
-
-                    <small>
-                      {readableHours(
-                        workedMinutes[index]
-                      )}
-                    </small>
-                  </div>
-                </div>
-              )
-            })}
+            )}
           </div>
 
           <div className="resultsFooter">
@@ -1031,7 +1495,10 @@ export default function Home() {
               </small>
 
               <strong>
-                {decimalHours(totalMinutes)} hours
+                {decimalHours(
+                  totalMinutes
+                )}{' '}
+                hours
               </strong>
             </div>
 
