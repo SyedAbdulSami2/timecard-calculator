@@ -14,6 +14,15 @@ type Row = {
   reported_hours?: number | null
 }
 
+type OcrWord = {
+  text: string
+  confidence: number
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+}
+
 const DAYS = [
   'Monday',
   'Tuesday',
@@ -24,18 +33,30 @@ const DAYS = [
   'Sunday',
 ]
 
-const DAY_PATTERNS: Record<
-  string,
-  RegExp
-> = {
-  Monday: /\b(?:mon|monday)\b/i,
-  Tuesday: /\b(?:tue|tues|tuesday)\b/i,
-  Wednesday: /\b(?:wed|wednesday)\b/i,
-  Thursday:
-    /\b(?:thu|thur|thurs|thursday)\b/i,
-  Friday: /\b(?:fri|friday)\b/i,
-  Saturday: /\b(?:sat|saturday)\b/i,
-  Sunday: /\b(?:sun|sunday)\b/i,
+const DAY_SHORT: Record<string, string> = {
+  mon: 'Monday',
+  monday: 'Monday',
+
+  tue: 'Tuesday',
+  tues: 'Tuesday',
+  tuesday: 'Tuesday',
+
+  wed: 'Wednesday',
+  wednesday: 'Wednesday',
+
+  thu: 'Thursday',
+  thur: 'Thursday',
+  thurs: 'Thursday',
+  thursday: 'Thursday',
+
+  fri: 'Friday',
+  friday: 'Friday',
+
+  sat: 'Saturday',
+  saturday: 'Saturday',
+
+  sun: 'Sunday',
+  sunday: 'Sunday',
 }
 
 const defaultRows = (): Row[] =>
@@ -50,9 +71,7 @@ const defaultRows = (): Row[] =>
 function parseTime(
   value: string
 ): number | null {
-  if (!value?.trim()) {
-    return null
-  }
+  if (!value?.trim()) return null
 
   let text = value
     .trim()
@@ -96,27 +115,34 @@ function parseTime(
       text.replace(/\D/g, '')
 
     if (digits.length <= 2) {
-      hours = Number(digits)
+      hours =
+        Number(digits)
+
+      minutes = 0
     } else if (
       digits.length === 3
     ) {
-      hours = Number(
-        digits.slice(0, 1)
-      )
+      hours =
+        Number(
+          digits.slice(0, 1)
+        )
 
-      minutes = Number(
-        digits.slice(1)
-      )
+      minutes =
+        Number(
+          digits.slice(1)
+        )
     } else if (
       digits.length === 4
     ) {
-      hours = Number(
-        digits.slice(0, 2)
-      )
+      hours =
+        Number(
+          digits.slice(0, 2)
+        )
 
-      minutes = Number(
-        digits.slice(2)
-      )
+      minutes =
+        Number(
+          digits.slice(2)
+        )
     } else {
       return null
     }
@@ -132,7 +158,11 @@ function parseTime(
   }
 
   /*
-    Accept 17:50PM as 17:50.
+    Allow accidental input like:
+    17:50PM
+
+    Treat it as:
+    17:50
   */
   if (
     hours > 12 &&
@@ -162,11 +192,13 @@ function parseTime(
     ) {
       hours += 12
     }
-  } else if (
-    hours < 0 ||
-    hours > 23
-  ) {
-    return null
+  } else {
+    if (
+      hours < 0 ||
+      hours > 23
+    ) {
+      return null
+    }
   }
 
   return (
@@ -179,10 +211,14 @@ function getWorkedMinutes(
   row: Row
 ) {
   const start =
-    parseTime(row.clock_in)
+    parseTime(
+      row.clock_in
+    )
 
   const end =
-    parseTime(row.clock_out)
+    parseTime(
+      row.clock_out
+    )
 
   if (
     start === null ||
@@ -191,25 +227,28 @@ function getWorkedMinutes(
     return 0
   }
 
-  let worked =
+  let minutes =
     end - start
 
   /*
     Overnight shift.
+
+    Example:
+    18:40 -> 07:13
   */
-  if (worked < 0) {
-    worked +=
+  if (minutes < 0) {
+    minutes +=
       24 * 60
   }
 
-  worked -=
+  minutes -=
     Number(
       row.break_minutes || 0
     )
 
   return Math.max(
     0,
-    worked
+    minutes
   )
 }
 
@@ -244,27 +283,83 @@ function readableHours(
 }
 
 function cleanOcrText(
-  text: string
+  value: string
 ) {
-  return text
-    .replace(/[Oo](?=\d)/g, '0')
+  return value
+    .replace(/–|—|−/g, '-')
     .replace(
-      /(?<=\d)[Oo]/g,
+      /(?<=\d)[Oo](?=\d)/g,
       '0'
     )
-    .replace(/–|—/g, '-')
+    .replace(
+      /(?<=\d)[Il](?=\d)/g,
+      '1'
+    )
     .replace(/\r/g, '\n')
 }
 
-function findTimeRange(
-  text: string
+function normalizeDetectedTime(
+  value: string
 ) {
+  let text = value
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '')
+    .replace(/\./g, ':')
+    .replace(/[Oo]/g, '0')
+
+  /*
+    648 -> 6:48
+  */
+  if (
+    /^\d{3}$/.test(text)
+  ) {
+    text =
+      `${text.slice(
+        0,
+        1
+      )}:${text.slice(1)}`
+  }
+
+  /*
+    0648 -> 06:48
+  */
+  if (
+    /^\d{4}$/.test(text)
+  ) {
+    text =
+      `${text.slice(
+        0,
+        2
+      )}:${text.slice(2)}`
+  }
+
+  return text
+}
+
+function extractTimeRange(
+  rawText: string
+) {
+  const text =
+    cleanOcrText(
+      rawText
+    )
+
   const patterns = [
-    /\b(\d{1,2}:\d{2})\s*[-~]\s*(\d{1,2}:\d{2})\b/i,
+    /*
+      06:48 - 19:31
+    */
+    /(\d{1,2}[:.]\d{2})\s*[-~]\s*(\d{1,2}[:.]\d{2})/i,
 
-    /\b(\d{1,2}:\d{2}\s*(?:AM|PM))\s*[-~]\s*(\d{1,2}:\d{2}\s*(?:AM|PM))\b/i,
+    /*
+      6:48AM - 7:31PM
+    */
+    /(\d{1,2}[:.]\d{2}\s*(?:AM|PM))\s*[-~]\s*(\d{1,2}[:.]\d{2}\s*(?:AM|PM))/i,
 
-    /\b(\d{3,4})\s*[-~]\s*(\d{3,4})\b/,
+    /*
+      0648 - 1931
+    */
+    /(\d{3,4})\s*[-~]\s*(\d{3,4})/,
   ]
 
   for (
@@ -298,65 +393,83 @@ function findTimeRange(
     }
   }
 
-  return null
-}
-
-function normalizeDetectedTime(
-  value: string
-) {
-  let text = value
-    .trim()
-    .toUpperCase()
-    .replace(/\s+/g, '')
-
   /*
-    OCR commonly reads:
-    0648 instead of 06:48
+    Sometimes OCR drops the dash.
+    Example:
+    "1st: 06:48 19:31"
   */
-  if (
-    /^\d{4}$/.test(text)
-  ) {
-    text =
-      `${text.slice(0, 2)}:${text.slice(2)}`
-  }
+  const looseMatches =
+    text.match(
+      /\b\d{1,2}[:.]\d{2}\b/g
+    ) || []
 
   if (
-    /^\d{3}$/.test(text)
+    looseMatches.length >= 2
   ) {
-    text =
-      `${text.slice(0, 1)}:${text.slice(1)}`
+    const start =
+      normalizeDetectedTime(
+        looseMatches[0]
+      )
+
+    const end =
+      normalizeDetectedTime(
+        looseMatches[1]
+      )
+
+    if (
+      parseTime(start) !== null &&
+      parseTime(end) !== null
+    ) {
+      return {
+        clock_in: start,
+        clock_out: end,
+      }
+    }
   }
 
-  return text
+  return null
 }
 
 function extractDailyTotal(
   text: string
 ) {
-  const match =
-    text.match(
-      /daily\s*total\s*:?\s*(\d+(?:\.\d+)?)/i
+  const cleaned =
+    cleanOcrText(
+      text
     )
 
-  if (!match) {
-    return null
-  }
+  const patterns = [
+    /daily\s*total\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
 
-  const value =
-    Number(match[1])
+    /daily\s*total[^0-9]{0,10}(\d{1,2}(?:\.\d{1,2})?)/i,
+  ]
 
-  if (
-    Number.isNaN(value) ||
-    value < 0 ||
-    value > 24
+  for (
+    const pattern of patterns
   ) {
-    return null
+    const match =
+      cleaned.match(pattern)
+
+    if (!match) {
+      continue
+    }
+
+    const value =
+      Number(match[1])
+
+    if (
+      !Number.isNaN(value) &&
+      value >= 0 &&
+      value <= 24
+    ) {
+      return value
+    }
   }
 
-  return value
+  return null
 }
 
-function extractBreakMinutes(
+function extractBreak(
   text: string
 ) {
   const match =
@@ -382,140 +495,261 @@ function extractBreakMinutes(
   return value
 }
 
-function extractMobileRows(
-  rawText: string
-): Row[] {
-  const rows =
-    defaultRows()
-
-  const text =
-    cleanOcrText(
-      rawText
-    )
+function parseTsvWords(
+  tsv: string
+): OcrWord[] {
+  if (!tsv) {
+    return []
+  }
 
   const lines =
-    text
-      .split('\n')
-      .map(
-        (line) =>
-          line.trim()
+    tsv.split('\n')
+
+  if (
+    lines.length < 2
+  ) {
+    return []
+  }
+
+  const header =
+    lines[0].split('\t')
+
+  const textIndex =
+    header.indexOf('text')
+
+  const confIndex =
+    header.indexOf('conf')
+
+  const leftIndex =
+    header.indexOf('left')
+
+  const topIndex =
+    header.indexOf('top')
+
+  const widthIndex =
+    header.indexOf('width')
+
+  const heightIndex =
+    header.indexOf('height')
+
+  if (
+    textIndex === -1 ||
+    leftIndex === -1 ||
+    topIndex === -1 ||
+    widthIndex === -1 ||
+    heightIndex === -1
+  ) {
+    return []
+  }
+
+  const words: OcrWord[] =
+    []
+
+  for (
+    let index = 1;
+    index < lines.length;
+    index++
+  ) {
+    const columns =
+      lines[index].split(
+        '\t'
       )
-      .filter(Boolean)
 
-  DAYS.forEach(
-    (day, rowIndex) => {
-      const pattern =
-        DAY_PATTERNS[day]
+    const text =
+      (
+        columns[
+          textIndex
+        ] || ''
+      ).trim()
 
-      const indexes: number[] =
-        []
-
-      lines.forEach(
-        (line, index) => {
-          if (
-            pattern.test(line)
-          ) {
-            indexes.push(
-              index
-            )
-          }
-        }
-      )
-
-      for (
-        const index of indexes
-      ) {
-        /*
-          A mobile card can span
-          several OCR lines.
-        */
-        const cardText =
-          lines
-            .slice(
-              Math.max(
-                0,
-                index - 1
-              ),
-              Math.min(
-                lines.length,
-                index + 9
-              )
-            )
-            .join(' ')
-
-        const timeRange =
-          findTimeRange(
-            cardText
-          )
-
-        if (timeRange) {
-          rows[
-            rowIndex
-          ].clock_in =
-            timeRange.clock_in
-
-          rows[
-            rowIndex
-          ].clock_out =
-            timeRange.clock_out
-        }
-
-        const dailyTotal =
-          extractDailyTotal(
-            cardText
-          )
-
-        if (
-          dailyTotal !== null
-        ) {
-          rows[
-            rowIndex
-          ].reported_hours =
-            dailyTotal
-        }
-
-        const breakMinutes =
-          extractBreakMinutes(
-            cardText
-          )
-
-        if (
-          breakMinutes > 0
-        ) {
-          rows[
-            rowIndex
-          ].break_minutes =
-            breakMinutes
-        }
-
-        if (
-          rows[rowIndex]
-            .clock_in &&
-          rows[rowIndex]
-            .clock_out
-        ) {
-          break
-        }
-      }
+    if (!text) {
+      continue
     }
-  )
 
-  return rows
+    const left =
+      Number(
+        columns[
+          leftIndex
+        ]
+      )
+
+    const top =
+      Number(
+        columns[
+          topIndex
+        ]
+      )
+
+    const width =
+      Number(
+        columns[
+          widthIndex
+        ]
+      )
+
+    const height =
+      Number(
+        columns[
+          heightIndex
+        ]
+      )
+
+    const confidence =
+      confIndex >= 0
+        ? Number(
+            columns[
+              confIndex
+            ]
+          )
+        : 0
+
+    if (
+      Number.isNaN(left) ||
+      Number.isNaN(top) ||
+      Number.isNaN(width) ||
+      Number.isNaN(height)
+    ) {
+      continue
+    }
+
+    words.push({
+      text,
+      confidence:
+        Number.isNaN(
+          confidence
+        )
+          ? 0
+          : confidence,
+      x0: left,
+      y0: top,
+      x1:
+        left + width,
+      y1:
+        top + height,
+    })
+  }
+
+  return words
 }
 
-async function preprocessImage(
+function normalizeDayWord(
+  value: string
+) {
+  return value
+    .toLowerCase()
+    .replace(
+      /[^a-z]/g,
+      ''
+    )
+}
+
+function getDayFromWord(
+  value: string
+) {
+  const cleaned =
+    normalizeDayWord(
+      value
+    )
+
+  return (
+    DAY_SHORT[
+      cleaned
+    ] || null
+  )
+}
+
+function cropCanvas(
+  source:
+    HTMLCanvasElement,
+  x: number,
+  y: number,
+  width: number,
+  height: number
+) {
+  const crop =
+    document.createElement(
+      'canvas'
+    )
+
+  const safeX =
+    Math.max(
+      0,
+      Math.floor(x)
+    )
+
+  const safeY =
+    Math.max(
+      0,
+      Math.floor(y)
+    )
+
+  const safeWidth =
+    Math.min(
+      source.width -
+        safeX,
+      Math.floor(width)
+    )
+
+  const safeHeight =
+    Math.min(
+      source.height -
+        safeY,
+      Math.floor(height)
+    )
+
+  crop.width =
+    Math.max(
+      1,
+      safeWidth
+    )
+
+  crop.height =
+    Math.max(
+      1,
+      safeHeight
+    )
+
+  const context =
+    crop.getContext(
+      '2d'
+    )
+
+  if (!context) {
+    throw new Error(
+      'Unable to crop image.'
+    )
+  }
+
+  context.drawImage(
+    source,
+    safeX,
+    safeY,
+    crop.width,
+    crop.height,
+    0,
+    0,
+    crop.width,
+    crop.height
+  )
+
+  return crop
+}
+
+async function prepareImage(
   file: File
-): Promise<HTMLCanvasElement> {
+) {
   const bitmap =
     await createImageBitmap(
       file
     )
 
   /*
-    Upscaling helps Tesseract
-    with small mobile screenshots.
+    Upscale image.
+
+    This is important for
+    mobile screenshots.
   */
-  const scale = 2
+  const scale = 2.5
 
   const canvas =
     document.createElement(
@@ -523,12 +757,16 @@ async function preprocessImage(
     )
 
   canvas.width =
-    bitmap.width *
-    scale
+    Math.round(
+      bitmap.width *
+        scale
+    )
 
   canvas.height =
-    bitmap.height *
-    scale
+    Math.round(
+      bitmap.height *
+        scale
+    )
 
   const context =
     canvas.getContext(
@@ -537,7 +775,7 @@ async function preprocessImage(
 
   if (!context) {
     throw new Error(
-      'Could not prepare image.'
+      'Unable to process image.'
     )
   }
 
@@ -550,10 +788,10 @@ async function preprocessImage(
   )
 
   /*
-    Increase contrast and
-    convert toward grayscale.
+    Grayscale +
+    contrast enhancement.
   */
-  const image =
+  const imageData =
     context.getImageData(
       0,
       0,
@@ -561,47 +799,51 @@ async function preprocessImage(
       canvas.height
     )
 
-  const pixels =
-    image.data
+  const data =
+    imageData.data
 
   for (
     let i = 0;
-    i < pixels.length;
+    i < data.length;
     i += 4
   ) {
     const gray =
       Math.round(
-        pixels[i] *
+        data[i] *
           0.299 +
-          pixels[i + 1] *
+          data[i + 1] *
             0.587 +
-          pixels[i + 2] *
+          data[i + 2] *
             0.114
       )
 
-    const contrasted =
-      gray < 165
+    /*
+      Keep dark text dark
+      and make background light.
+    */
+    const contrast =
+      gray < 170
         ? Math.max(
             0,
             gray - 35
           )
         : Math.min(
             255,
-            gray + 25
+            gray + 20
           )
 
-    pixels[i] =
-      contrasted
+    data[i] =
+      contrast
 
-    pixels[i + 1] =
-      contrasted
+    data[i + 1] =
+      contrast
 
-    pixels[i + 2] =
-      contrasted
+    data[i + 2] =
+      contrast
   }
 
   context.putImageData(
-    image,
+    imageData,
     0,
     0
   )
@@ -609,8 +851,9 @@ async function preprocessImage(
   return canvas
 }
 
-async function ocrCanvas(
-  canvas: HTMLCanvasElement
+async function recognizeCanvas(
+  canvas:
+    HTMLCanvasElement
 ) {
   const Tesseract =
     await import(
@@ -623,36 +866,401 @@ async function ocrCanvas(
       'eng',
       {
         logger: (
-          message: any
+          info: any
         ) => {
           console.log(
             'OCR:',
-            message
+            info
           )
         },
       }
     )
 
-  return (
-    result.data.text ||
-    ''
-  )
+  return {
+    text:
+      result.data.text ||
+      '',
+
+    /*
+      Tesseract.js versions
+      expose TSV here.
+    */
+    tsv:
+      (
+        result.data as any
+      ).tsv || '',
+  }
 }
 
-async function runImageOcr(
+async function readMobileCards(
+  sourceCanvas:
+    HTMLCanvasElement
+): Promise<Row[]> {
+  const fullResult =
+    await recognizeCanvas(
+      sourceCanvas
+    )
+
+  console.log(
+    'FULL OCR:',
+    fullResult.text
+  )
+
+  const words =
+    parseTsvWords(
+      fullResult.tsv
+    )
+
+  const output =
+    defaultRows()
+
+  /*
+    Locate each weekday
+    word in the screenshot.
+  */
+  const dayWords =
+    words.filter(
+      (word) => {
+        const day =
+          getDayFromWord(
+            word.text
+          )
+
+        return (
+          day !== null &&
+          word.confidence >
+            15
+        )
+      }
+    )
+
+  console.log(
+    'DAY WORDS:',
+    dayWords
+  )
+
+  /*
+    If TSV did not give
+    useful positions, use
+    the old text parser as
+    fallback.
+  */
+  if (
+    dayWords.length === 0
+  ) {
+    return parseWholeTextFallback(
+      fullResult.text
+    )
+  }
+
+  const candidates:
+    Record<
+      string,
+      Row[]
+    > = {}
+
+  for (
+    const dayWord of dayWords
+  ) {
+    const day =
+      getDayFromWord(
+        dayWord.text
+      )
+
+    if (!day) {
+      continue
+    }
+
+    /*
+      Determine which half
+      of the screenshot this
+      card belongs to.
+
+      Your example screenshot
+      contains two phone screens
+      side by side.
+    */
+    const middle =
+      sourceCanvas.width /
+      2
+
+    const isWideComposite =
+      sourceCanvas.width >
+      sourceCanvas.height *
+        0.8
+
+    let columnLeft = 0
+    let columnRight =
+      sourceCanvas.width
+
+    if (
+      isWideComposite
+    ) {
+      if (
+        dayWord.x0 <
+        middle
+      ) {
+        columnLeft = 0
+        columnRight =
+          middle
+      } else {
+        columnLeft =
+          middle
+
+        columnRight =
+          sourceCanvas.width
+      }
+    }
+
+    /*
+      Crop the entire card.
+
+      The weekday appears
+      toward the left side of
+      each card, so extend
+      above and below it.
+    */
+    const paddingTop = 45
+
+    const paddingBottom =
+      175
+
+    const cropY =
+      dayWord.y0 -
+      paddingTop
+
+    const cropHeight =
+      dayWord.y1 -
+      dayWord.y0 +
+      paddingTop +
+      paddingBottom
+
+    const card =
+      cropCanvas(
+        sourceCanvas,
+        columnLeft,
+        cropY,
+        columnRight -
+          columnLeft,
+        cropHeight
+      )
+
+    const cardResult =
+      await recognizeCanvas(
+        card
+      )
+
+    console.log(
+      `${day} CARD OCR:`,
+      cardResult.text
+    )
+
+    const timeRange =
+      extractTimeRange(
+        cardResult.text
+      )
+
+    const dailyTotal =
+      extractDailyTotal(
+        cardResult.text
+      )
+
+    const breakMinutes =
+      extractBreak(
+        cardResult.text
+      )
+
+    if (
+      !timeRange &&
+      dailyTotal === null
+    ) {
+      continue
+    }
+
+    const candidate: Row =
+      {
+        day,
+        clock_in:
+          timeRange
+            ?.clock_in ||
+          '',
+
+        clock_out:
+          timeRange
+            ?.clock_out ||
+          '',
+
+        break_minutes:
+          breakMinutes,
+
+        reported_hours:
+          dailyTotal,
+      }
+
+    if (
+      !candidates[day]
+    ) {
+      candidates[day] =
+        []
+    }
+
+    candidates[
+      day
+    ].push(
+      candidate
+    )
+  }
+
+  /*
+    Choose best card
+    candidate for each day.
+  */
+  DAYS.forEach(
+    (day, index) => {
+      const dayCandidates =
+        candidates[day] ||
+        []
+
+      if (
+        dayCandidates.length ===
+        0
+      ) {
+        return
+      }
+
+      const best =
+        dayCandidates.sort(
+          (a, b) => {
+            const scoreA =
+              (a.clock_in &&
+              a.clock_out
+                ? 10
+                : 0) +
+              (a.reported_hours !=
+              null
+                ? 5
+                : 0)
+
+            const scoreB =
+              (b.clock_in &&
+              b.clock_out
+                ? 10
+                : 0) +
+              (b.reported_hours !=
+              null
+                ? 5
+                : 0)
+
+            return (
+              scoreB -
+              scoreA
+            )
+          }
+        )[0]
+
+      output[index] =
+        best
+    }
+  )
+
+  return output
+}
+
+function parseWholeTextFallback(
+  text: string
+) {
+  const output =
+    defaultRows()
+
+  const cleaned =
+    cleanOcrText(
+      text
+    )
+
+  const lines =
+    cleaned
+      .split('\n')
+      .map(
+        (line) =>
+          line.trim()
+      )
+      .filter(Boolean)
+
+  DAYS.forEach(
+    (day, index) => {
+      const short =
+        day
+          .slice(0, 3)
+          .toLowerCase()
+
+      const lineIndex =
+        lines.findIndex(
+          (line) =>
+            line
+              .toLowerCase()
+              .includes(short)
+        )
+
+      if (
+        lineIndex === -1
+      ) {
+        return
+      }
+
+      const nearby =
+        lines
+          .slice(
+            lineIndex,
+            lineIndex + 8
+          )
+          .join(' ')
+
+      const range =
+        extractTimeRange(
+          nearby
+        )
+
+      const total =
+        extractDailyTotal(
+          nearby
+        )
+
+      if (range) {
+        output[
+          index
+        ].clock_in =
+          range.clock_in
+
+        output[
+          index
+        ].clock_out =
+          range.clock_out
+      }
+
+      output[
+        index
+      ].reported_hours =
+        total
+    }
+  )
+
+  return output
+}
+
+async function processImageFile(
   file: File
 ) {
   const canvas =
-    await preprocessImage(
+    await prepareImage(
       file
     )
 
-  return ocrCanvas(
+  return readMobileCards(
     canvas
   )
 }
 
-async function runPdfOcr(
+async function processPdfFile(
   file: File
 ) {
   const pdfjs =
@@ -673,7 +1281,8 @@ async function runPdfOcr(
       data,
     }).promise
 
-  let allText = ''
+  const finalRows =
+    defaultRows()
 
   for (
     let pageNumber = 1;
@@ -686,118 +1295,66 @@ async function runPdfOcr(
         pageNumber
       )
 
-    /*
-      Try text PDF first.
-    */
-    const textContent =
-      await page.getTextContent()
+    const viewport =
+      page.getViewport({
+        scale: 2.4,
+      })
 
-    const embeddedText =
-      textContent.items
-        .map(
-          (item: any) =>
-            item.str || ''
-        )
-        .join(' ')
-        .trim()
+    const canvas =
+      document.createElement(
+        'canvas'
+      )
 
-    if (
-      embeddedText.length >
-      100
-    ) {
-      allText +=
-        '\n' +
-        embeddedText
+    const context =
+      canvas.getContext(
+        '2d'
+      )
 
+    if (!context) {
       continue
     }
 
-    /*
-      Scanned PDF.
-    */
-    try {
-      const viewport =
-        page.getViewport({
-          scale: 2.5,
-        })
-
-      const canvas =
-        document.createElement(
-          'canvas'
-        )
-
-      const context =
-        canvas.getContext(
-          '2d'
-        )
-
-      if (!context) {
-        continue
-      }
-
-      canvas.width =
-        Math.ceil(
-          viewport.width
-        )
-
-      canvas.height =
-        Math.ceil(
-          viewport.height
-        )
-
-      await page.render({
-        canvas,
-        canvasContext:
-          context,
-        viewport,
-      }).promise
-
-      allText +=
-        '\n' +
-        (await ocrCanvas(
-          canvas
-        ))
-    } catch (error) {
-      console.warn(
-        'PDF OCR error:',
-        error
+    canvas.width =
+      Math.ceil(
+        viewport.width
       )
-    }
-  }
 
-  return allText
-}
+    canvas.height =
+      Math.ceil(
+        viewport.height
+      )
 
-async function runBrowserOcr(
-  file: File
-) {
-  const ext =
-    file.name
-      .toLowerCase()
-      .split('.')
-      .pop()
+    await page.render({
+      canvas,
+      canvasContext:
+        context,
+      viewport,
+    }).promise
 
-  if (
-    [
-      'jpg',
-      'jpeg',
-      'png',
-    ].includes(ext || '')
-  ) {
-    return runImageOcr(
-      file
+    const pageRows =
+      await readMobileCards(
+        canvas
+      )
+
+    pageRows.forEach(
+      (
+        row,
+        index
+      ) => {
+        if (
+          row.clock_in &&
+          row.clock_out
+        ) {
+          finalRows[
+            index
+          ] =
+            row
+        }
+      }
     )
   }
 
-  if (ext === 'pdf') {
-    return runPdfOcr(
-      file
-    )
-  }
-
-  throw new Error(
-    'Please upload a PDF, JPG, JPEG, or PNG.'
-  )
+  return finalRows
 }
 
 export default function Home() {
@@ -854,10 +1411,10 @@ export default function Home() {
         dailyMinutes.reduce(
           (
             total,
-            minutes
+            value
           ) =>
             total +
-            minutes,
+            value,
           0
         ),
       [dailyMinutes]
@@ -940,34 +1497,46 @@ export default function Home() {
     )
 
     setMessage(
-      'Reading your timecard. This may take several seconds…'
+      'Reading each timecard entry separately. Please wait…'
     )
 
     try {
-      const text =
-        await runBrowserOcr(
-          file
-        )
+      const extension =
+        file.name
+          .toLowerCase()
+          .split('.')
+          .pop()
 
-      console.log(
-        'OCR TEXT:',
-        text
-      )
+      let detectedRows:
+        Row[]
 
       if (
-        !text ||
-        text.trim()
-          .length < 10
+        [
+          'jpg',
+          'jpeg',
+          'png',
+        ].includes(
+          extension ||
+            ''
+        )
       ) {
+        detectedRows =
+          await processImageFile(
+            file
+          )
+      } else if (
+        extension ===
+        'pdf'
+      ) {
+        detectedRows =
+          await processPdfFile(
+            file
+          )
+      } else {
         throw new Error(
-          'No readable text was detected.'
+          'Please upload a JPG, JPEG, PNG, or PDF.'
         )
       }
-
-      const detectedRows =
-        extractMobileRows(
-          text
-        )
 
       setRows(
         detectedRows
@@ -985,12 +1554,9 @@ export default function Home() {
         0
       ) {
         setMessage(
-          `OCR detected ${detectedCount} worked day(s). Please verify the detected values.`
+          `Detected ${detectedCount} worked day(s). Please verify each Clock In and Clock Out before using the total.`
         )
 
-        /*
-          Upload calculates automatically.
-        */
         setSubmitted(
           true
         )
@@ -1010,7 +1576,7 @@ export default function Home() {
         )
       } else {
         setMessage(
-          'OCR completed, but the shift times were not clear enough. Please enter or correct them manually.'
+          'The screenshot was read, but no complete shift ranges were identified. Please enter or correct the times manually.'
         )
 
         setEntryMode(
@@ -1024,13 +1590,9 @@ export default function Home() {
         error
       )
 
-      setRows(
-        defaultRows()
-      )
-
       setMessage(
         error?.message ||
-          'The timecard could not be read automatically. Please enter the times manually.'
+          'Could not read the timecard automatically.'
       )
 
       setEntryMode(
@@ -1054,8 +1616,8 @@ export default function Home() {
     const completed =
       rows.filter(
         (row) =>
-          row.clock_in.trim() &&
-          row.clock_out.trim()
+          row.clock_in &&
+          row.clock_out
       )
 
     if (
@@ -1063,7 +1625,7 @@ export default function Home() {
       0
     ) {
       setMessage(
-        'Please enter at least one Clock In and Clock Out.'
+        'Please enter at least one completed shift.'
       )
 
       return
@@ -1082,7 +1644,7 @@ export default function Home() {
 
     if (invalid) {
       setMessage(
-        `Please check ${invalid.day}. Use time formats such as 6:40AM, 5:50PM, 06:40, or 17:50.`
+        `Please check the time format for ${invalid.day}.`
       )
 
       return
@@ -1091,20 +1653,6 @@ export default function Home() {
     setMessage('')
     setSubmitted(
       true
-    )
-
-    setTimeout(
-      () => {
-        document
-          .getElementById(
-            'results'
-          )
-          ?.scrollIntoView({
-            behavior:
-              'smooth',
-          })
-      },
-      100
     )
   }
 
@@ -1122,9 +1670,6 @@ export default function Home() {
     )
 
     setMessage('')
-    setReadingFile(
-      false
-    )
 
     if (
       fileRef.current
@@ -1148,7 +1693,7 @@ export default function Home() {
             </div>
 
             <div className="brandSubtitle">
-              Simple weekly hour calculations
+              Weekly hour calculator
             </div>
           </div>
         </div>
@@ -1159,7 +1704,7 @@ export default function Home() {
       </section>
 
       <section className="heroCard">
-        <div className="heroContent">
+        <div>
           <span className="eyebrow">
             WEEKLY HOURS
           </span>
@@ -1170,9 +1715,8 @@ export default function Home() {
 
           <p>
             Upload a screenshot,
-            photo, or PDF of your
-            timecard, or enter your
-            shifts manually.
+            photo, or PDF, or enter
+            your shifts manually.
           </p>
 
           <div className="heroActions">
@@ -1221,15 +1765,15 @@ export default function Home() {
 
         <div className="heroStat">
           <span>
-            Supports
+            OCR
           </span>
 
           <strong>
-            Screenshots & photos
+            Card-by-card
           </strong>
 
           <small>
-            Plus PDF timecards
+            Each shift is read separately
           </small>
         </div>
       </section>
@@ -1248,8 +1792,9 @@ export default function Home() {
           </h2>
 
           <p>
-            Review OCR values or
-            enter times manually.
+            Review the detected
+            values before using
+            the result.
           </p>
         </div>
 
@@ -1283,7 +1828,10 @@ export default function Home() {
           </div>
 
           {rows.map(
-            (row, index) => {
+            (
+              row,
+              index
+            ) => {
               const minutes =
                 dailyMinutes[
                   index
@@ -1378,12 +1926,10 @@ export default function Home() {
                         style={{
                           display:
                             'block',
-                          fontWeight:
-                            400,
                           opacity:
-                            0.65,
+                            0.6,
                           marginTop:
-                            3,
+                            2,
                         }}
                       >
                         Card:{' '}
@@ -1470,21 +2016,10 @@ export default function Home() {
 
           <div className="resultTable">
             <div className="resultTableHeader">
-              <div>
-                Day
-              </div>
-
-              <div>
-                Shift
-              </div>
-
-              <div>
-                Break
-              </div>
-
-              <div>
-                Hours
-              </div>
+              <div>Day</div>
+              <div>Shift</div>
+              <div>Break</div>
+              <div>Hours</div>
             </div>
 
             {rows.map(
@@ -1578,55 +2113,6 @@ export default function Home() {
           </div>
         </section>
       )}
-
-      <section className="infoGrid">
-        <div className="infoCard">
-          <span className="infoNumber">
-            01
-          </span>
-
-          <h3>
-            Decimal hours
-          </h3>
-
-          <p>
-            33 minutes divided by
-            60 equals 0.55 hours.
-          </p>
-        </div>
-
-        <div className="infoCard">
-          <span className="infoNumber">
-            02
-          </span>
-
-          <h3>
-            Overnight shifts
-          </h3>
-
-          <p>
-            Shifts continuing into
-            the following day are
-            calculated automatically.
-          </p>
-        </div>
-
-        <div className="infoCard">
-          <span className="infoNumber">
-            03
-          </span>
-
-          <h3>
-            OCR review
-          </h3>
-
-          <p>
-            Always verify OCR-detected
-            times before relying on the
-            final result.
-          </p>
-        </div>
-      </section>
 
       <footer className="siteFooter">
         TimeCard Calculator
