@@ -21,12 +21,20 @@ SUPPORTED = {
 }
 
 
-def _encode_png(image: Image.Image) -> str:
+MAX_WIDTH = 1400
+PDF_SCALE = 1.4
+JPEG_QUALITY = 72
+
+
+def _encode_image(
+    image: Image.Image,
+) -> str:
     buffer = io.BytesIO()
 
     image.save(
         buffer,
-        format="PNG",
+        format="JPEG",
+        quality=JPEG_QUALITY,
         optimize=True,
     )
 
@@ -34,43 +42,45 @@ def _encode_png(image: Image.Image) -> str:
         buffer.getvalue()
     ).decode("ascii")
 
-    return f"data:image/png;base64,{encoded}"
+    return (
+        "data:image/jpeg;base64,"
+        + encoded
+    )
 
 
 def _prepare_image(
     image: Image.Image,
 ) -> Image.Image:
-    image = ImageOps.exif_transpose(image)
+    image = ImageOps.exif_transpose(
+        image
+    )
 
-    if image.mode not in ("RGB", "L"):
-        image = image.convert("RGB")
+    image = image.convert("L")
 
     width, height = image.size
 
-    target_width = 2200
-
-    if width < target_width:
-        scale = target_width / width
+    if width > MAX_WIDTH:
+        scale = MAX_WIDTH / width
 
         image = image.resize(
             (
-                round(width * scale),
-                round(height * scale),
+                MAX_WIDTH,
+                round(
+                    height * scale
+                ),
             ),
             Image.Resampling.LANCZOS,
         )
 
-    gray = ImageOps.grayscale(image)
-
-    gray = ImageEnhance.Contrast(
-        gray
-    ).enhance(1.7)
-
-    gray = ImageEnhance.Sharpness(
-        gray
+    image = ImageEnhance.Contrast(
+        image
     ).enhance(1.35)
 
-    return gray.convert("RGB")
+    image = ImageEnhance.Sharpness(
+        image
+    ).enhance(1.15)
+
+    return image.convert("RGB")
 
 
 def _convert_image(
@@ -88,9 +98,11 @@ def _convert_image(
         try:
             image.seek(frame)
 
+            page = image.copy()
+
             pages.append(
                 _prepare_image(
-                    image.copy()
+                    page
                 )
             )
 
@@ -117,6 +129,8 @@ def _convert_pdf(
         ) from exc
 
     if document.page_count == 0:
+        document.close()
+
         raise ValueError(
             "The PDF contains no pages."
         )
@@ -124,39 +138,45 @@ def _convert_pdf(
     images: list[Image.Image] = []
 
     matrix = fitz.Matrix(
-        3.0,
-        3.0,
+        PDF_SCALE,
+        PDF_SCALE,
     )
 
-    for page_number in range(
-        document.page_count
-    ):
-        page = document.load_page(
-            page_number
-        )
-
-        pixmap = page.get_pixmap(
-            matrix=matrix,
-            alpha=False,
-        )
-
-        png_bytes = pixmap.tobytes(
-            "png"
-        )
-
-        image = Image.open(
-            io.BytesIO(
-                png_bytes
+    try:
+        for page_number in range(
+            document.page_count
+        ):
+            page = document.load_page(
+                page_number
             )
-        )
 
-        images.append(
-            _prepare_image(
+            pixmap = page.get_pixmap(
+                matrix=matrix,
+                alpha=False,
+            )
+
+            image = Image.frombytes(
+                "RGB",
+                (
+                    pixmap.width,
+                    pixmap.height,
+                ),
+                pixmap.samples,
+            )
+
+            prepared = _prepare_image(
                 image
             )
-        )
 
-    document.close()
+            images.append(
+                prepared
+            )
+
+            del pixmap
+            del image
+
+    finally:
+        document.close()
 
     return images
 
@@ -171,9 +191,11 @@ def convert_document(
 
     if extension not in SUPPORTED:
         raise ValueError(
-            "Unsupported document type. "
-            "Upload PDF, JPG, JPEG, PNG, WEBP, "
-            "BMP, TIFF, or TIF."
+            (
+                "Unsupported document type. "
+                "Upload PDF, JPG, JPEG, PNG, WEBP, "
+                "BMP, TIFF, or TIF."
+            )
         )
 
     if not data:
@@ -185,9 +207,15 @@ def convert_document(
         images = _convert_pdf(
             data
         )
+
     else:
         images = _convert_image(
             data
+        )
+
+    if not images:
+        raise ValueError(
+            "No document pages were produced."
         )
 
     pages = []
@@ -200,7 +228,7 @@ def convert_document(
                 "page_number": index + 1,
                 "width": image.width,
                 "height": image.height,
-                "image": _encode_png(
+                "image": _encode_image(
                     image
                 ),
             }
