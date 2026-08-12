@@ -1,10 +1,6 @@
 'use client'
 
-import {
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 type Row = {
   day: string
@@ -44,23 +40,15 @@ const defaultRows = (): Row[] =>
   }))
 
 function parseTime(value: string): number | null {
-  if (!value?.trim()) {
-    return null
-  }
+  if (!value?.trim()) return null
 
   let text = value
     .trim()
     .toUpperCase()
-    .replace(/[.\u2024]/g, ':')
+    .replace(/[.]/g, ':')
     .replace(/\s+/g, '')
 
-  text = text
-    .replace(/O/g, '0')
-    .replace(/I(?=\d)/g, '1')
-    .replace(/L(?=\d)/g, '1')
-
   let meridiem = ''
-
   const meridiemMatch = text.match(/(AM|PM)$/)
 
   if (meridiemMatch) {
@@ -73,17 +61,15 @@ function parseTime(value: string): number | null {
 
   if (text.includes(':')) {
     const parts = text.split(':')
-
-    if (parts.length !== 2) {
-      return null
-    }
-
+    if (parts.length !== 2) return null
     hours = Number(parts[0])
     minutes = Number(parts[1])
   } else {
     const digits = text.replace(/\D/g, '')
 
-    if (digits.length === 3) {
+    if (digits.length <= 2) {
+      hours = Number(digits)
+    } else if (digits.length === 3) {
       hours = Number(digits.slice(0, 1))
       minutes = Number(digits.slice(1))
     } else if (digits.length === 4) {
@@ -103,18 +89,15 @@ function parseTime(value: string): number | null {
     return null
   }
 
+  if (hours > 12 && hours <= 23) {
+    meridiem = ''
+  }
+
   if (meridiem) {
-    if (hours < 1 || hours > 12) {
-      return null
-    }
+    if (hours < 1 || hours > 12) return null
 
-    if (meridiem === 'AM' && hours === 12) {
-      hours = 0
-    }
-
-    if (meridiem === 'PM' && hours !== 12) {
-      hours += 12
-    }
+    if (meridiem === 'AM' && hours === 12) hours = 0
+    if (meridiem === 'PM' && hours !== 12) hours += 12
   } else if (hours < 0 || hours > 23) {
     return null
   }
@@ -126,9 +109,7 @@ function getWorkedMinutes(row: Row) {
   const start = parseTime(row.clock_in)
   const end = parseTime(row.clock_out)
 
-  if (start === null || end === null) {
-    return 0
-  }
+  if (start === null || end === null) return 0
 
   let worked = end - start
 
@@ -149,862 +130,440 @@ function readableHours(minutes: number) {
   const hours = Math.floor(minutes / 60)
   const mins = minutes % 60
 
-  if (hours === 0) {
-    return `${mins}m`
-  }
-
-  if (mins === 0) {
-    return `${hours}h`
-  }
+  if (hours === 0) return `${mins}m`
+  if (mins === 0) return `${hours}h`
 
   return `${hours}h ${mins}m`
 }
 
 /*
  * OCR cleanup.
- *
- * We intentionally DO NOT globally replace every O with 0 because
- * doing that can damage words such as "Monday".
+ * Different timecard apps can produce:
+ * 06:48, 06.48, 0648, 6:48 AM, 19:31, etc.
  */
 function cleanOcrText(text: string) {
   return text
     .replace(/\r/g, '\n')
     .replace(/[–—−]/g, '-')
-    .replace(/[|]/g, ' ')
     .replace(/[Oo](?=\d)/g, '0')
     .replace(/(?<=\d)[Oo]/g, '0')
-    .replace(/(?<=\d)[Il](?=\d)/g, '1')
-    .replace(/[ \t]+/g, ' ')
+    .replace(/[|]/g, '1')
 }
 
-/*
- * Converts OCR variants into a usable time.
- */
 function normalizeDetectedTime(value: string) {
   let text = value
     .trim()
     .toUpperCase()
     .replace(/\s+/g, '')
-    .replace(/[Oo]/g, '0')
-    .replace(/[Il]/g, '1')
 
-  text = text
-    .replace(/[;,.]/g, ':')
-    .replace(/[^0-9:APM]/g, '')
-
-  if (/^\d{4}(?:AM|PM)$/.test(text)) {
-    text = `${text.slice(0, 2)}:${text.slice(2)}`
-  }
-
-  if (/^\d{3}(?:AM|PM)$/.test(text)) {
-    text = `${text.slice(0, 1)}:${text.slice(1)}`
-  }
+  text = text.replace(/[.]/g, ':')
 
   if (/^\d{4}$/.test(text)) {
     text = `${text.slice(0, 2)}:${text.slice(2)}`
-  }
-
-  if (/^\d{3}$/.test(text)) {
+  } else if (/^\d{3}$/.test(text)) {
     text = `${text.slice(0, 1)}:${text.slice(1)}`
   }
 
   return text
 }
 
-/*
- * A time token should look like an actual clock time.
- *
- * This deliberately rejects decimal values such as:
- * 12.72
- * 25.72
- * 38.63
- *
- * Those are hours, not clock times.
- */
-function isLikelyTimeToken(value: string) {
-  const normalized = normalizeDetectedTime(value)
-  return parseTime(normalized) !== null
-}
-
-/*
- * Finds all time ranges in text.
- *
- * Supported examples:
- * 06:48 - 19:31
- * 6:48 AM - 7:31 PM
- * 0648 - 1931
- * 648 AM - 731 PM
- * 06:48 to 19:31
- * 1st: 06:48 - 19:31
- */
-function findAllTimeRanges(text: string) {
-  const normalizedText = cleanOcrText(text)
-
-  const patterns = [
-    /(\d{1,2}[:.]\d{2}\s*(?:AM|PM)?)\s*(?:-|~|to|–|—)\s*(\d{1,2}[:.]\d{2}\s*(?:AM|PM)?)/gi,
-
-    /(\d{3,4}\s*(?:AM|PM)?)\s*(?:-|~|to|–|—)\s*(\d{3,4}\s*(?:AM|PM)?)/gi,
-
-    /(\d{1,2}\s*(?:AM|PM))\s*(?:-|~|to|–|—)\s*(\d{1,2}\s*(?:AM|PM))/gi,
-  ]
-
-  const ranges: {
-    clock_in: string
-    clock_out: string
-    startMinute: number
-    endMinute: number
-    raw: string
-  }[] = []
-
-  for (const pattern of patterns) {
-    let match: RegExpExecArray | null
-
-    while ((match = pattern.exec(normalizedText)) !== null) {
-      const clockIn = normalizeDetectedTime(match[1])
-      const clockOut = normalizeDetectedTime(match[2])
-
-      const startMinute = parseTime(clockIn)
-      const endMinute = parseTime(clockOut)
-
-      if (
-        startMinute === null ||
-        endMinute === null ||
-        !isLikelyTimeToken(clockIn) ||
-        !isLikelyTimeToken(clockOut)
-      ) {
-        continue
-      }
-
-      ranges.push({
-        clock_in: clockIn,
-        clock_out: clockOut,
-        startMinute,
-        endMinute,
-        raw: match[0],
-      })
-    }
-  }
-
-  return dedupeTimeRanges(ranges)
-}
-
-function dedupeTimeRanges(
-  ranges: ReturnType<typeof findAllTimeRanges>
-) {
-  const seen = new Set<string>()
-
-  return ranges.filter((range) => {
-    const key = `${range.clock_in}|${range.clock_out}`
-
-    if (seen.has(key)) {
-      return false
-    }
-
-    seen.add(key)
-    return true
-  })
-}
-
-/*
- * Converts OCR lines into a more useful stream.
- *
- * OCR sometimes returns:
- *
- * 1st:
- * 06:48
- * -
- * 19:31
- *
- * So we create overlapping groups of nearby lines.
- */
-function buildTextWindows(lines: string[]) {
-  const windows: {
-    text: string
-    start: number
-    end: number
-  }[] = []
-
-  const windowSizes = [1, 2, 3, 4, 5, 7, 9, 12]
-
-  for (let i = 0; i < lines.length; i++) {
-    for (const size of windowSizes) {
-      const end = Math.min(
-        lines.length,
-        i + size
-      )
-
-      windows.push({
-        text: lines.slice(i, end).join(' '),
-        start: i,
-        end,
-      })
-    }
-  }
-
-  return windows
-}
-
-/*
- * Extracts a daily total such as:
- *
- * Daily total: 12.72
- * Total: 12.72
- * Hours: 12.72
- */
 function extractDailyTotal(text: string) {
-  const patterns = [
-    /daily\s*total\s*:?\s*(\d+(?:\.\d+)?)/i,
-    /(?:daily|worked|regular|total)\s*(?:hours?|hrs?)?\s*:?\s*(\d+(?:\.\d+)?)/i,
-  ]
+  const match = text.match(
+    /(?:daily\s*total|total\s*(?:for\s*the\s*day|today))\s*:?\s*(\d+(?:\.\d+)?)/i
+  )
 
-  for (const pattern of patterns) {
-    const match = text.match(pattern)
+  if (!match) return null
 
-    if (!match) {
-      continue
-    }
+  const value = Number(match[1])
 
-    const value = Number(match[1])
-
-    if (
-      Number.isNaN(value) ||
-      value < 0 ||
-      value > 24
-    ) {
-      continue
-    }
-
-    return value
+  if (!Number.isFinite(value) || value < 0 || value > 24) {
+    return null
   }
 
-  return null
+  return value
 }
 
 function extractBreakMinutes(text: string) {
   const match = text.match(
-    /(?:break|meal|lunch|unpaid)[^0-9]{0,20}(\d{1,3})\s*(?:min|mins|minutes)?/i
+    /(?:break|meal)[^0-9]{0,20}(\d{1,3})\s*(?:min|mins|minutes)?/i
   )
 
-  if (!match) {
-    return 0
-  }
+  if (!match) return 0
 
   const value = Number(match[1])
 
-  if (
-    Number.isNaN(value) ||
-    value < 0 ||
-    value > 180
-  ) {
+  if (!Number.isFinite(value) || value < 0 || value > 180) {
     return 0
   }
 
   return value
 }
 
-function calculateRangeMinutes(
-  clockIn: string,
-  clockOut: string
-) {
-  const start = parseTime(clockIn)
-  const end = parseTime(clockOut)
-
-  if (start === null || end === null) {
-    return null
-  }
-
-  let minutes = end - start
-
-  if (minutes < 0) {
-    minutes += 24 * 60
-  }
-
-  return minutes
-}
-
 /*
- * Scores a time range against a reported daily total.
+ * Find a clock-in / clock-out pair.
  *
- * Example:
- *
- * 06:48 -> 19:31
- * = 12h 43m
- * = 12.72 decimal hours
- *
- * If the card says Daily total 12.72,
- * this range receives a very high score.
+ * Accepted examples:
+ * 06:48 - 19:31
+ * 06.48 - 19.31
+ * 0648 - 1931
+ * 6:48 AM to 7:31 PM
+ * 06:48 → 19:31
  */
-function scoreTimeRange(
-  range: {
-    clock_in: string
-    clock_out: string
-  },
-  reportedHours: number | null
-) {
-  const minutes = calculateRangeMinutes(
-    range.clock_in,
-    range.clock_out
-  )
+function findTimeRange(text: string) {
+  const normalized = cleanOcrText(text)
 
-  if (minutes === null) {
-    return -999
-  }
+  const timeToken =
+    String.raw`(?:\d{1,2}[:.]\d{2}\s*(?:AM|PM)?|\b\d{3,4}\b)`
 
-  let score = 10
+  const rangePatterns = [
+    new RegExp(
+      `(${timeToken})\\s*(?:-|to|→|~)\\s*(${timeToken})`,
+      'i'
+    ),
+    /(\d{1,2}\s*(?:AM|PM))\s*(?:-|to|→|~)\s*(\d{1,2}\s*(?:AM|PM))/i,
+  ]
 
-  /*
-   * Normal healthcare shifts usually fall
-   * between 4 and 18 hours.
-   */
-  if (minutes >= 240 && minutes <= 18 * 60) {
-    score += 15
-  }
+  for (const pattern of rangePatterns) {
+    const match = normalized.match(pattern)
 
-  if (reportedHours !== null) {
-    const calculatedHours =
-      minutes / 60
+    if (!match) continue
 
-    const difference =
-      Math.abs(
-        calculatedHours -
-          reportedHours
-      )
+    const start = normalizeDetectedTime(match[1])
+    const end = normalizeDetectedTime(match[2])
 
-    if (difference < 0.02) {
-      score += 100
-    } else if (difference < 0.05) {
-      score += 80
-    } else if (difference < 0.15) {
-      score += 50
-    } else if (difference < 0.5) {
-      score += 15
-    } else {
-      score -= 10
+    if (
+      parseTime(start) !== null &&
+      parseTime(end) !== null
+    ) {
+      return {
+        clock_in: start,
+        clock_out: end,
+      }
     }
   }
 
-  return score
+  /*
+   * Fallback for OCR that removes the dash/separator.
+   */
+  const tokenPattern =
+    /(?:\b\d{1,2}[:.]\d{2}\s*(?:AM|PM)?\b|\b\d{3,4}\b)/gi
+
+  const candidates = (normalized.match(tokenPattern) || [])
+    .map(normalizeDetectedTime)
+    .filter((value) => parseTime(value) !== null)
+
+  for (let i = 0; i < candidates.length - 1; i += 1) {
+    const start = candidates[i]
+    const end = candidates[i + 1]
+
+    if (
+      parseTime(start) !== null &&
+      parseTime(end) !== null &&
+      start !== end
+    ) {
+      return {
+        clock_in: start,
+        clock_out: end,
+      }
+    }
+  }
+
+  return null
 }
 
 /*
- * Finds the best time range for a particular day.
+ * Main OCR extractor.
  *
- * We look around the day label instead of requiring
- * the time range to be on the exact same OCR line.
+ * IMPORTANT FIX:
+ * We no longer assume that the OCR text has a specific number of lines
+ * around each weekday. Every weekday is treated as its own section, from
+ * that weekday marker until the next weekday marker.
+ *
+ * This makes the parser much more tolerant of different timecard layouts.
  */
-function findBestRangeForDay(
-  lines: string[],
-  day: string
-) {
-  const pattern = DAY_PATTERNS[day]
+function extractMobileRows(rawText: string): Row[] {
+  const rows = defaultRows()
+  const text = cleanOcrText(rawText)
 
-  const dayIndexes: number[] = []
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  const markers: Array<{
+    day: string
+    lineIndex: number
+  }> = []
 
   lines.forEach((line, index) => {
-    if (pattern.test(line)) {
-      dayIndexes.push(index)
+    for (const day of DAYS) {
+      if (DAY_PATTERNS[day].test(line)) {
+        markers.push({
+          day,
+          lineIndex: index,
+        })
+        break
+      }
     }
   })
 
-  if (dayIndexes.length === 0) {
-    return null
+  /*
+   * Remove duplicate weekday detections caused by OCR repeating a label.
+   */
+  const uniqueMarkers: Array<{
+    day: string
+    lineIndex: number
+  }> = []
+
+  for (const marker of markers) {
+    const previous =
+      uniqueMarkers[uniqueMarkers.length - 1]
+
+    if (
+      previous &&
+      previous.day === marker.day &&
+      marker.lineIndex - previous.lineIndex <= 2
+    ) {
+      continue
+    }
+
+    uniqueMarkers.push(marker)
   }
 
-  let best:
-    | {
-        clock_in: string
-        clock_out: string
-        score: number
-        reportedHours: number | null
-      }
-    | null = null
+  /*
+   * PASS 1:
+   * Parse the section belonging to each explicit weekday.
+   */
+  for (
+    let i = 0;
+    i < uniqueMarkers.length;
+    i += 1
+  ) {
+    const marker = uniqueMarkers[i]
+    const nextMarker = uniqueMarkers[i + 1]
 
-  for (const dayIndex of dayIndexes) {
-    /*
-     * Search a generous area around the day.
-     *
-     * This handles different card layouts where
-     * the day, shift, and total may be separated.
-     */
     const start = Math.max(
       0,
-      dayIndex - 2
+      marker.lineIndex
     )
 
-    const end = Math.min(
-      lines.length,
-      dayIndex + 16
-    )
+    const end = nextMarker
+      ? nextMarker.lineIndex
+      : lines.length
 
-    const localLines =
-      lines.slice(start, end)
+    const section = lines
+      .slice(start, end)
+      .join(' ')
 
-    const localText =
-      localLines.join(' ')
+    const rowIndex = DAYS.indexOf(marker.day)
 
-    const reportedHours =
-      extractDailyTotal(
-        localText
-      )
+    if (rowIndex < 0) continue
 
-    const ranges =
-      findAllTimeRanges(
-        localText
-      )
+    const timeRange = findTimeRange(section)
 
-    for (const range of ranges) {
-      const score =
-        scoreTimeRange(
-          range,
-          reportedHours
-        )
-
-      /*
-       * Prefer ranges physically closer
-       * to the weekday label.
-       */
-      const rangePosition =
-        localText.indexOf(
-          range.clock_in
-        )
-
-      const dayPosition =
-        localText.indexOf(
-          localLines.find(
-            (line) =>
-              pattern.test(line)
-          ) || ''
-        )
-
-      if (
-        rangePosition >= 0 &&
-        dayPosition >= 0
-      ) {
-        const distance =
-          Math.abs(
-            rangePosition -
-              dayPosition
-          )
-
-        if (distance < 100) {
-          if (score > -900) {
-            if (!best || score > best.score) {
-              best = {
-                clock_in:
-                  range.clock_in,
-                clock_out:
-                  range.clock_out,
-                score:
-                  score + 10,
-                reportedHours,
-              }
-            }
-          }
-        } else if (
-          !best ||
-          score > best.score
-        ) {
-          best = {
-            clock_in:
-              range.clock_in,
-            clock_out:
-              range.clock_out,
-            score,
-            reportedHours,
-          }
-        }
-      } else if (
-        !best ||
-        score > best.score
-      ) {
-        best = {
-          clock_in:
-            range.clock_in,
-          clock_out:
-            range.clock_out,
-          score,
-          reportedHours,
-        }
-      }
-    }
-  }
-
-  return best
-}
-
-/*
- * Second-pass strategy:
- *
- * Some timecards are OCR'd without the weekday attached
- * to the time range. In that case we identify all valid
- * ranges and assign them to weekdays in document order.
- *
- * This is only used for days that were not already detected.
- */
-function extractUnassignedRanges(
-  lines: string[]
-) {
-  const allText =
-    lines.join(' ')
-
-  const ranges =
-    findAllTimeRanges(
-      allText
-    )
-
-  return ranges
-}
-
-/*
- * Main timecard parser.
- */
-function extractMobileRows(
-  rawText: string
-): Row[] {
-  const rows =
-    defaultRows()
-
-  const cleaned =
-    cleanOcrText(
-      rawText
-    )
-
-  const lines =
-    cleaned
-      .split('\n')
-      .map((line) =>
-        line.trim()
-      )
-      .filter(Boolean)
-
-  /*
-   * First pass:
-   * Match weekday -> nearby shift.
-   */
-  const detectedIndexes =
-    new Set<number>()
-
-  DAYS.forEach(
-    (day, rowIndex) => {
-      const result =
-        findBestRangeForDay(
-          lines,
-          day
-        )
-
-      if (!result) {
-        return
-      }
-
-      /*
-       * Avoid accepting a very weak match.
-       */
-      if (result.score < 5) {
-        return
-      }
-
+    if (timeRange) {
       rows[rowIndex].clock_in =
-        result.clock_in
+        timeRange.clock_in
 
       rows[rowIndex].clock_out =
-        result.clock_out
-
-      rows[rowIndex].reported_hours =
-        result.reportedHours
-
-      detectedIndexes.add(
-        rowIndex
-      )
+        timeRange.clock_out
     }
-  )
 
-  /*
-   * Second pass:
-   * If weekday-based detection missed some rows,
-   * try assigning orphan ranges by document order.
-   */
-  const missingRows =
-    rows
-      .map((row, index) => ({
-        row,
-        index,
-      }))
-      .filter(
-        ({ row }) =>
-          !row.clock_in ||
-          !row.clock_out
-      )
+    const dailyTotal =
+      extractDailyTotal(section)
 
-  if (
-    missingRows.length > 0
-  ) {
-    const ranges =
-      extractUnassignedRanges(
-        lines
-      )
+    if (dailyTotal !== null) {
+      rows[rowIndex].reported_hours =
+        dailyTotal
+    }
 
-    const usedRanges =
-      new Set<string>()
+    const breakMinutes =
+      extractBreakMinutes(section)
 
-    rows.forEach((row) => {
-      if (
-        row.clock_in &&
-        row.clock_out
-      ) {
-        usedRanges.add(
-          `${row.clock_in}|${row.clock_out}`
-        )
-      }
-    })
-
-    for (
-      const missing of missingRows
-    ) {
-      const candidate =
-        ranges.find(
-          (range) =>
-            !usedRanges.has(
-              `${range.clock_in}|${range.clock_out}`
-            )
-        )
-
-      if (!candidate) {
-        continue
-      }
-
-      const reportedHours =
-        findReportedHoursNearRow(
-          lines,
-          missing.row.day
-        )
-
-      const score =
-        scoreTimeRange(
-          candidate,
-          reportedHours
-        )
-
-      if (score >= 10) {
-        rows[
-          missing.index
-        ].clock_in =
-          candidate.clock_in
-
-        rows[
-          missing.index
-        ].clock_out =
-          candidate.clock_out
-
-        rows[
-          missing.index
-        ].reported_hours =
-          reportedHours
-
-        usedRanges.add(
-          `${candidate.clock_in}|${candidate.clock_out}`
-        )
-      }
+    if (breakMinutes > 0) {
+      rows[rowIndex].break_minutes =
+        breakMinutes
     }
   }
 
   /*
-   * Third pass:
-   * Extract breaks from the same local area.
+   * PASS 2:
+   * Wider search around each weekday for screenshots where OCR places
+   * the weekday and shift times on separate blocks.
    */
-  DAYS.forEach(
-    (day, rowIndex) => {
+  for (const marker of uniqueMarkers) {
+    const rowIndex = DAYS.indexOf(marker.day)
+
+    if (rowIndex < 0) continue
+
+    if (
+      rows[rowIndex].clock_in &&
+      rows[rowIndex].clock_out
+    ) {
+      continue
+    }
+
+    const windowStart = Math.max(
+      0,
+      marker.lineIndex - 2
+    )
+
+    const windowEnd = Math.min(
+      lines.length,
+      marker.lineIndex + 10
+    )
+
+    const nearbyText = lines
+      .slice(windowStart, windowEnd)
+      .join(' ')
+
+    const timeRange =
+      findTimeRange(nearbyText)
+
+    if (timeRange) {
+      rows[rowIndex].clock_in =
+        timeRange.clock_in
+
+      rows[rowIndex].clock_out =
+        timeRange.clock_out
+    }
+
+    const dailyTotal =
+      extractDailyTotal(nearbyText)
+
+    if (
+      dailyTotal !== null &&
+      rows[rowIndex].reported_hours == null
+    ) {
+      rows[rowIndex].reported_hours =
+        dailyTotal
+    }
+
+    const breakMinutes =
+      extractBreakMinutes(nearbyText)
+
+    if (
+      breakMinutes > 0 &&
+      rows[rowIndex].break_minutes === 0
+    ) {
+      rows[rowIndex].break_minutes =
+        breakMinutes
+    }
+  }
+
+  /*
+   * PASS 3:
+   * Last-resort fallback for screenshots where OCR completely misses
+   * one or more weekday labels. We fill only rows that are still empty,
+   * in the order the shift ranges appear in the OCR.
+   */
+  const rangePattern =
+    /(\d{1,2}[:.]\d{2}\s*(?:AM|PM)?|\b\d{3,4}\b)\s*(?:-|to|→|~)\s*(\d{1,2}[:.]\d{2}\s*(?:AM|PM)?|\b\d{3,4}\b)/gi
+
+  const ranges = [
+    ...text.matchAll(rangePattern),
+  ]
+    .map((match) => ({
+      clock_in:
+        normalizeDetectedTime(match[1]),
+      clock_out:
+        normalizeDetectedTime(match[2]),
+    }))
+    .filter(
+      (range) =>
+        parseTime(range.clock_in) !== null &&
+        parseTime(range.clock_out) !== null
+    )
+
+  let rangeCursor = 0
+
+  for (
+    let rowIndex = 0;
+    rowIndex < rows.length;
+    rowIndex += 1
+  ) {
+    if (
+      rows[rowIndex].clock_in &&
+      rows[rowIndex].clock_out
+    ) {
+      continue
+    }
+
+    while (rangeCursor < ranges.length) {
+      const range =
+        ranges[rangeCursor]
+
+      rangeCursor += 1
+
       if (
-        !rows[rowIndex].clock_in ||
-        !rows[rowIndex].clock_out
+        parseTime(range.clock_in) !== null &&
+        parseTime(range.clock_out) !== null
       ) {
-        return
-      }
+        rows[rowIndex].clock_in =
+          range.clock_in
 
-      const pattern =
-        DAY_PATTERNS[day]
+        rows[rowIndex].clock_out =
+          range.clock_out
 
-      const dayIndex =
-        lines.findIndex(
-          (line) =>
-            pattern.test(line)
-        )
-
-      if (
-        dayIndex < 0
-      ) {
-        return
-      }
-
-      const localText =
-        lines
-          .slice(
-            Math.max(
-              0,
-              dayIndex - 2
-            ),
-            Math.min(
-              lines.length,
-              dayIndex + 16
-            )
-          )
-          .join(' ')
-
-      const breakMinutes =
-        extractBreakMinutes(
-          localText
-        )
-
-      if (
-        breakMinutes > 0
-      ) {
-        rows[rowIndex].break_minutes =
-          breakMinutes
+        break
       }
     }
-  )
+  }
 
   return rows
 }
 
-function findReportedHoursNearRow(
-  lines: string[],
-  day: string
-) {
-  const pattern =
-    DAY_PATTERNS[day]
-
-  const index =
-    lines.findIndex(
-      (line) =>
-        pattern.test(line)
-    )
-
-  if (index < 0) {
-    return null
-  }
-
-  const text =
-    lines
-      .slice(
-        Math.max(
-          0,
-          index - 2
-        ),
-        Math.min(
-          lines.length,
-          index + 16
-        )
-      )
-      .join(' ')
-
-  return extractDailyTotal(
-    text
-  )
-}
-
-/*
- * Creates multiple OCR versions of the image.
- *
- * Different timecards need different OCR preprocessing.
- */
-async function createOcrCanvases(
+async function preprocessImage(
   file: File
-): Promise<HTMLCanvasElement[]> {
+): Promise<HTMLCanvasElement> {
   const bitmap =
-    await createImageBitmap(
-      file
-    )
-
-  const sourceWidth =
-    bitmap.width
-
-  const sourceHeight =
-    bitmap.height
+    await createImageBitmap(file)
 
   /*
-   * Do not upscale excessively.
-   *
-   * 3x works well for mobile screenshots,
-   * while limiting huge images avoids browser
-   * memory problems.
+   * Upscale mobile screenshots before OCR.
    */
-  const scale =
-    Math.min(
-      3,
-      Math.max(
-        2,
-        2400 /
-          Math.max(
-            sourceWidth,
-            sourceHeight
-          )
-      )
-    )
+  const scale = 3
 
-  const width =
-    Math.round(
-      sourceWidth * scale
-    )
+  const canvas =
+    document.createElement('canvas')
 
-  const height =
-    Math.round(
-      sourceHeight * scale
-    )
+  canvas.width =
+    bitmap.width * scale
 
-  const canvases: HTMLCanvasElement[] =
-    []
+  canvas.height =
+    bitmap.height * scale
 
-  /*
-   * Version 1:
-   * High-quality grayscale.
-   */
-  const grayCanvas =
-    document.createElement(
-      'canvas'
-    )
+  const context =
+    canvas.getContext('2d')
 
-  grayCanvas.width =
-    width
-
-  grayCanvas.height =
-    height
-
-  const grayContext =
-    grayCanvas.getContext(
-      '2d'
-    )
-
-  if (!grayContext) {
+  if (!context) {
     throw new Error(
       'Could not prepare image.'
     )
   }
 
-  grayContext.imageSmoothingEnabled =
-    true
-
-  grayContext.imageSmoothingQuality =
-    'high'
-
-  grayContext.drawImage(
+  context.drawImage(
     bitmap,
     0,
     0,
-    width,
-    height
+    canvas.width,
+    canvas.height
   )
 
   const image =
-    grayContext.getImageData(
+    context.getImageData(
       0,
       0,
-      width,
-      height
+      canvas.width,
+      canvas.height
     )
 
-  const pixels =
-    image.data
+  const pixels = image.data
 
+  /*
+   * Grayscale + stronger contrast improves recognition of small
+   * numbers in mobile timecard screenshots.
+   */
   for (
     let i = 0;
     i < pixels.length;
@@ -1012,244 +571,46 @@ async function createOcrCanvases(
   ) {
     const gray =
       Math.round(
-        pixels[i] *
-          0.299 +
-          pixels[i + 1] *
-            0.587 +
-          pixels[i + 2] *
-            0.114
+        pixels[i] * 0.299 +
+        pixels[i + 1] * 0.587 +
+        pixels[i + 2] * 0.114
       )
 
+    const contrasted =
+      gray < 160
+        ? Math.max(
+            0,
+            gray - 45
+          )
+        : Math.min(
+            255,
+            gray + 25
+          )
+
     pixels[i] =
-      gray
+      contrasted
 
     pixels[i + 1] =
-      gray
+      contrasted
 
     pixels[i + 2] =
-      gray
+      contrasted
   }
 
-  grayContext.putImageData(
+  context.putImageData(
     image,
     0,
     0
   )
 
-  canvases.push(
-    grayCanvas
-  )
-
-  /*
-   * Version 2:
-   * Strong black/white threshold.
-   *
-   * Useful for small dark text.
-   */
-  const thresholdCanvas =
-    document.createElement(
-      'canvas'
-    )
-
-  thresholdCanvas.width =
-    width
-
-  thresholdCanvas.height =
-    height
-
-  const thresholdContext =
-    thresholdCanvas.getContext(
-      '2d'
-    )
-
-  if (thresholdContext) {
-    thresholdContext.drawImage(
-      bitmap,
-      0,
-      0,
-      width,
-      height
-    )
-
-    const thresholdImage =
-      thresholdContext.getImageData(
-        0,
-        0,
-        width,
-        height
-      )
-
-    const thresholdPixels =
-      thresholdImage.data
-
-    for (
-      let i = 0;
-      i <
-      thresholdPixels.length;
-      i += 4
-    ) {
-      const gray =
-        Math.round(
-          thresholdPixels[i] *
-            0.299 +
-            thresholdPixels[
-              i + 1
-            ] *
-              0.587 +
-            thresholdPixels[
-              i + 2
-            ] *
-              0.114
-        )
-
-      const value =
-        gray < 170
-          ? 0
-          : 255
-
-      thresholdPixels[i] =
-        value
-
-      thresholdPixels[
-        i + 1
-      ] = value
-
-      thresholdPixels[
-        i + 2
-      ] = value
-    }
-
-    thresholdContext.putImageData(
-      thresholdImage,
-      0,
-      0
-    )
-
-    canvases.push(
-      thresholdCanvas
-    )
-  }
-
-  /*
-   * Version 3:
-   * Contrast-enhanced.
-   */
-  const contrastCanvas =
-    document.createElement(
-      'canvas'
-    )
-
-  contrastCanvas.width =
-    width
-
-  contrastCanvas.height =
-    height
-
-  const contrastContext =
-    contrastCanvas.getContext(
-      '2d'
-    )
-
-  if (contrastContext) {
-    contrastContext.drawImage(
-      bitmap,
-      0,
-      0,
-      width,
-      height
-    )
-
-    const contrastImage =
-      contrastContext.getImageData(
-        0,
-        0,
-        width,
-        height
-      )
-
-    const contrastPixels =
-      contrastImage.data
-
-    for (
-      let i = 0;
-      i <
-      contrastPixels.length;
-      i += 4
-    ) {
-      const gray =
-        Math.round(
-          contrastPixels[i] *
-            0.299 +
-            contrastPixels[
-              i + 1
-            ] *
-              0.587 +
-            contrastPixels[
-              i + 2
-            ] *
-              0.114
-        )
-
-      /*
-       * Contrast around the midpoint.
-       */
-      const contrasted =
-        Math.max(
-          0,
-          Math.min(
-            255,
-            (gray - 128) *
-              1.7 +
-              128
-          )
-        )
-
-      contrastPixels[i] =
-        contrasted
-
-      contrastPixels[
-        i + 1
-      ] = contrasted
-
-      contrastPixels[
-        i + 2
-      ] = contrasted
-    }
-
-    contrastContext.putImageData(
-      contrastImage,
-      0,
-      0
-    )
-
-    canvases.push(
-      contrastCanvas
-    )
-  }
-
-  return canvases
+  return canvas
 }
 
-/*
- * Run Tesseract with several page segmentation modes.
- *
- * PSM 6:
- * Assumes a uniform block of text.
- *
- * PSM 11:
- * Sparse text.
- *
- * PSM 12:
- * Sparse text with OSD.
- */
 async function ocrCanvas(
-  canvas: HTMLCanvasElement,
-  psm: number
+  canvas: HTMLCanvasElement
 ) {
   const Tesseract =
-    await import(
-      'tesseract.js'
-    )
+    await import('tesseract.js')
 
   const result =
     await Tesseract.recognize(
@@ -1264,16 +625,7 @@ async function ocrCanvas(
             message
           )
         },
-
-        /*
-         * Tesseract accepts config values
-         * through the options object.
-         */
-        config: {
-          tessedit_pageseg_mode:
-            String(psm),
-        },
-      } as any
+      }
     )
 
   return (
@@ -1282,71 +634,16 @@ async function ocrCanvas(
   )
 }
 
-/*
- * Combines multiple OCR passes.
- */
 async function runImageOcr(
   file: File
 ) {
-  const canvases =
-    await createOcrCanvases(
+  const canvas =
+    await preprocessImage(
       file
     )
 
-  const allResults: string[] =
-    []
-
-  for (
-    let canvasIndex = 0;
-    canvasIndex <
-      canvases.length;
-    canvasIndex++
-  ) {
-    const canvas =
-      canvases[
-        canvasIndex
-      ]
-
-    for (
-      const psm of [
-        6,
-        11,
-        12,
-      ]
-    ) {
-      try {
-        const text =
-          await ocrCanvas(
-            canvas,
-            psm
-          )
-
-        if (
-          text &&
-          text.trim()
-            .length > 0
-        ) {
-          allResults.push(
-            text
-          )
-        }
-      } catch (
-        error
-      ) {
-        console.warn(
-          'OCR pass failed:',
-          error
-        )
-      }
-    }
-  }
-
-  /*
-   * Put the most useful OCR result first,
-   * but keep all passes available to the parser.
-   */
-  return allResults.join(
-    '\n'
+  return ocrCanvas(
+    canvas
   )
 }
 
@@ -1377,7 +674,7 @@ async function runPdfOcr(
     let pageNumber = 1;
     pageNumber <=
     pdf.numPages;
-    pageNumber++
+    pageNumber += 1
   ) {
     const page =
       await pdf.getPage(
@@ -1402,15 +699,14 @@ async function runPdfOcr(
 
       if (
         embeddedText.length >
-        20
+        30
       ) {
         allText +=
-          '\n' +
-          embeddedText
+          `\n${embeddedText}`
+
+        continue
       }
-    } catch (
-      error
-    ) {
+    } catch (error) {
       console.warn(
         'Embedded PDF text error:',
         error
@@ -1418,15 +714,12 @@ async function runPdfOcr(
     }
 
     /*
-     * Also OCR the page.
-     *
-     * This catches PDFs where embedded text is
-     * incomplete or incorrectly ordered.
+     * Scanned PDF fallback.
      */
     try {
       const viewport =
         page.getViewport({
-          scale: 3,
+          scale: 2.5,
         })
 
       const canvas =
@@ -1460,31 +753,11 @@ async function runPdfOcr(
         viewport,
       }).promise
 
-      for (
-        const psm of [
-          6,
-          11,
-        ]
-      ) {
-        try {
-          allText +=
-            '\n' +
-            (await ocrCanvas(
-              canvas,
-              psm
-            ))
-        } catch (
-          error
-        ) {
-          console.warn(
-            'PDF OCR pass error:',
-            error
-          )
-        }
-      }
-    } catch (
-      error
-    ) {
+      allText +=
+        `\n${await ocrCanvas(
+          canvas
+        )}`
+    } catch (error) {
       console.warn(
         'PDF OCR error:',
         error
@@ -1509,9 +782,7 @@ async function runBrowserOcr(
       'jpg',
       'jpeg',
       'png',
-    ].includes(
-      ext || ''
-    )
+    ].includes(ext || '')
   ) {
     return runImageOcr(
       file
@@ -1672,7 +943,7 @@ export default function Home() {
     )
 
     setMessage(
-      'Reading your timecard. Using multiple OCR passes to detect different timecard layouts…'
+      'Reading your timecard. This may take several seconds…'
     )
 
     try {
@@ -1682,7 +953,7 @@ export default function Home() {
         )
 
       console.log(
-        'COMBINED OCR TEXT:',
+        'OCR TEXT:',
         text
       )
 
@@ -1701,11 +972,6 @@ export default function Home() {
           text
         )
 
-      console.log(
-        'DETECTED ROWS:',
-        detectedRows
-      )
-
       setRows(
         detectedRows
       )
@@ -1722,7 +988,7 @@ export default function Home() {
         0
       ) {
         setMessage(
-          `OCR detected ${detectedCount} worked day(s). Please verify the detected values before relying on the result.`
+          `OCR detected ${detectedCount} worked day(s). Please verify the detected values.`
         )
 
         setSubmitted(
@@ -1744,7 +1010,7 @@ export default function Home() {
         )
       } else {
         setMessage(
-          'OCR could not confidently identify the shift times. Please enter or correct them manually.'
+          'OCR completed, but the shift times were not clear enough. Please enter or correct them manually.'
         )
 
         setEntryMode(
@@ -2036,7 +1302,9 @@ export default function Home() {
                   }
                 >
                   <div className="dayCell">
-                    {row.day}
+                    {
+                      row.day
+                    }
                   </div>
 
                   <input
@@ -2364,11 +1632,9 @@ export default function Home() {
           </h3>
 
           <p>
-            Multiple OCR passes are
-            used to improve detection
-            across different timecard
-            layouts. Always verify
-            detected values.
+            Always verify OCR-detected
+            times before relying on the
+            final result.
           </p>
         </div>
       </section>
