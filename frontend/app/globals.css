@@ -1,38 +1,38 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap');
 
 :root {
-  --bg: #f6f9f8;
+  --bg: #f5faf8;
   --surface: #ffffff;
-  --surface-soft: #f0f7f5;
-  --border: #dce8e5;
-  --border-strong: #c9dbd7;
+  --surface-soft: #f0f8f5;
+  --border: #d9e8e3;
+  --border-strong: #c5d9d3;
 
   --text: #102a2a;
   --text-soft: #526968;
   --text-muted: #7a8d8b;
 
-  --primary: #087f73;
-  --primary-dark: #05645b;
-  --primary-light: #e4f5f1;
+  --primary: #0b7f73;
+  --primary-dark: #06675e;
+  --primary-light: #e5f5f1;
 
   --accent: #16a085;
-  --accent-light: #e9f8f4;
+  --accent-light: #eaf8f4;
 
-  --navy: #102f3f;
-  --navy-light: #183f52;
+  --navy: #123843;
+  --navy-light: #1a4a56;
 
-  --success: #17875f;
+  --success: #16835f;
   --success-bg: #eaf8f2;
 
-  --warning: #a86d12;
-  --warning-bg: #fff8e8;
+  --warning: #9a6818;
+  --warning-bg: #fff8e9;
 
   --danger: #b94b4b;
   --danger-bg: #fff1f1;
 
-  --shadow-sm: 0 4px 16px rgba(16, 42, 42, 0.06);
-  --shadow-md: 0 12px 35px rgba(16, 42, 42, 0.09);
-  --shadow-lg: 0 20px 55px rgba(16, 42, 42, 0.12);
+  --shadow-sm: 0 4px 18px rgba(16, 42, 42, 0.06);
+  --shadow-md: 0 12px 34px rgba(16, 42, 42, 0.08);
+  --shadow-lg: 0 22px 55px rgba(16, 42, 42, 0.12);
 
   --radius-sm: 10px;
   --radius-md: 16px;
@@ -55,25 +55,29 @@ html {
 body {
   margin: 0;
   padding: 0;
+
   background:
     radial-gradient(
       circle at 8% 0%,
       rgba(22, 160, 133, 0.08),
-      transparent 28%
+      transparent 30%
     ),
     radial-gradient(
-      circle at 92% 10%,
-      rgba(8, 127, 115, 0.06),
-      transparent 25%
+      circle at 95% 5%,
+      rgba(11, 127, 115, 0.06),
+      transparent 28%
     ),
     var(--bg);
+
   color: var(--text);
+
   font-family:
     "DM Sans",
     -apple-system,
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
+
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
@@ -108,222 +112,117 @@ button:disabled {
 }
 
 /* -------------------------------------------------------
-   TOP BAR
+   PROFESSIONAL HERO
 ------------------------------------------------------- */
 
-.topBar {
-  width: 100%;
-  min-height: 72px;
+.calculatorHero {
+  padding: 18px 0 70px;
+}
 
+.breadcrumb {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 14px;
 
-  margin-bottom: 28px;
-  padding: 0 4px;
-}
-
-.brandBlock {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-}
-
-.brandIcon {
-  width: 46px;
-  height: 46px;
-
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  border-radius: 13px;
-
-  background:
-    linear-gradient(
-      135deg,
-      var(--primary),
-      var(--accent)
-    );
-
-  color: white;
-
-  font-family: "Manrope", sans-serif;
-  font-size: 17px;
-  font-weight: 800;
-
-  box-shadow:
-    0 7px 18px rgba(8, 127, 115, 0.22);
-}
-
-.brandTitle {
-  color: var(--text);
-
-  font-family: "Manrope", sans-serif;
-  font-size: 17px;
-  font-weight: 800;
-
-  letter-spacing: -0.02em;
-}
-
-.brandSubtitle {
-  margin-top: 1px;
-
-  color: var(--text-muted);
-
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.privacyBadge {
-  padding: 9px 15px;
-
-  border: 1px solid var(--border);
-  border-radius: 999px;
-
-  background: rgba(255, 255, 255, 0.8);
+  margin-bottom: 64px;
 
   color: var(--text-soft);
 
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-
-  box-shadow: var(--shadow-sm);
 }
 
-/* -------------------------------------------------------
-   HERO
-------------------------------------------------------- */
-
-.heroCard {
-  position: relative;
-  overflow: hidden;
-
-  min-height: 330px;
-
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-
-  gap: 50px;
-
-  padding: 58px 58px;
-
-  border-radius: var(--radius-xl);
-
-  background:
-    linear-gradient(
-      135deg,
-      #0b625d 0%,
-      #087f73 45%,
-      #16a085 100%
-    );
-
-  color: white;
-
-  box-shadow:
-    0 22px 55px rgba(8, 127, 115, 0.22);
+.breadcrumbArrow {
+  color: var(--text-muted);
+  font-size: 23px;
+  font-weight: 400;
+  line-height: 1;
 }
 
-.heroCard::before {
-  content: "";
-  position: absolute;
-
-  width: 420px;
-  height: 420px;
-
-  right: -180px;
-  top: -180px;
-
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 50%;
-
-  box-shadow:
-    0 0 0 70px rgba(255, 255, 255, 0.025),
-    0 0 0 140px rgba(255, 255, 255, 0.02);
-
-  pointer-events: none;
+.breadcrumbActive {
+  color: var(--primary);
 }
 
-.heroCard::after {
-  content: "";
-
-  position: absolute;
-
-  width: 260px;
-  height: 260px;
-
-  left: -170px;
-  bottom: -190px;
-
-  border-radius: 50%;
-
-  background: rgba(255, 255, 255, 0.05);
-
-  pointer-events: none;
+.heroCenter {
+  max-width: 980px;
+  margin: 0 auto;
+  text-align: center;
 }
 
-.heroContent {
-  position: relative;
-  z-index: 2;
-
-  max-width: 710px;
-}
-
-.eyebrow {
+.heroBadge {
   display: inline-flex;
   align-items: center;
+  gap: 9px;
 
-  margin-bottom: 14px;
+  padding: 9px 17px;
 
-  color: rgba(255, 255, 255, 0.78);
+  border: 1px solid #cfe9e3;
+  border-radius: 999px;
 
-  font-size: 12px;
+  background: var(--primary-light);
+
+  color: var(--primary);
+
+  font-size: 11px;
   font-weight: 800;
-
-  letter-spacing: 0.16em;
+  letter-spacing: 0.11em;
 }
 
-.heroContent h1 {
-  margin: 0;
+.heroBadgeIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 
-  color: white;
+  width: 26px;
+  height: 26px;
+
+  border: 1.5px solid var(--primary);
+  border-radius: 50%;
+
+  font-size: 15px;
+}
+
+.calculatorHeroTitle {
+  margin: 27px 0 20px;
+
+  color: var(--text);
 
   font-family: "Manrope", sans-serif;
-  font-size: clamp(42px, 5vw, 67px);
-  line-height: 0.98;
-  letter-spacing: -0.055em;
+  font-size: clamp(42px, 6vw, 68px);
   font-weight: 800;
+
+  line-height: 1.04;
+  letter-spacing: -0.055em;
 }
 
-.heroContent p {
-  max-width: 630px;
-
-  margin: 22px 0 0;
-
-  color: rgba(255, 255, 255, 0.82);
-
-  font-size: 16px;
-  line-height: 1.7;
+.calculatorHeroTitle span {
+  display: block;
+  margin-top: 5px;
+  color: var(--primary);
 }
 
-.heroActions {
+.calculatorHeroText {
+  max-width: 790px;
+  margin: 0 auto;
+
+  color: var(--text-soft);
+
+  font-size: 17px;
+  line-height: 1.72;
+}
+
+.calculatorHeroActions {
   display: flex;
-  align-items: center;
+  justify-content: center;
   gap: 11px;
 
   margin-top: 30px;
 }
 
-.primaryButton,
-.secondaryButton {
-  min-height: 46px;
-
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-
-  padding: 0 20px;
+.heroPrimaryButton,
+.heroSecondaryButton {
+  min-height: 48px;
+  padding: 0 22px;
 
   border-radius: 11px;
 
@@ -337,88 +236,37 @@ button:disabled {
     border-color 0.18s ease;
 }
 
-.primaryButton {
-  border: 1px solid transparent;
+.heroPrimaryButton {
+  border: 1px solid var(--primary);
+  background: var(--primary);
+  color: white;
+
+  box-shadow:
+    0 8px 20px rgba(8, 127, 115, 0.2);
+}
+
+.heroPrimaryButton:hover:not(:disabled) {
+  transform: translateY(-2px);
+
+  background: var(--primary-dark);
+
+  box-shadow:
+    0 12px 26px rgba(8, 127, 115, 0.24);
+}
+
+.heroSecondaryButton {
+  border: 1px solid var(--border-strong);
 
   background: white;
+  color: var(--text);
+}
+
+.heroSecondaryButton:hover:not(:disabled) {
+  transform: translateY(-2px);
+
+  border-color: var(--primary);
+  background: var(--primary-light);
   color: var(--primary-dark);
-
-  box-shadow:
-    0 7px 20px rgba(0, 0, 0, 0.12);
-}
-
-.primaryButton:hover:not(:disabled) {
-  transform: translateY(-2px);
-
-  box-shadow:
-    0 11px 25px rgba(0, 0, 0, 0.16);
-}
-
-.secondaryButton {
-  border: 1px solid rgba(255, 255, 255, 0.35);
-
-  background: rgba(255, 255, 255, 0.08);
-
-  color: white;
-}
-
-.secondaryButton:hover:not(:disabled) {
-  transform: translateY(-2px);
-
-  background: rgba(255, 255, 255, 0.15);
-
-  border-color: rgba(255, 255, 255, 0.55);
-}
-
-.heroStat {
-  position: relative;
-  z-index: 2;
-
-  flex: 0 0 255px;
-
-  padding: 25px 24px;
-
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 18px;
-
-  background: rgba(255, 255, 255, 0.09);
-
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-.heroStat span {
-  display: block;
-
-  margin-bottom: 7px;
-
-  color: rgba(255, 255, 255, 0.68);
-
-  font-size: 11px;
-  font-weight: 700;
-
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.heroStat strong {
-  display: block;
-
-  color: white;
-
-  font-family: "Manrope", sans-serif;
-  font-size: 18px;
-  line-height: 1.25;
-}
-
-.heroStat small {
-  display: block;
-
-  margin-top: 7px;
-
-  color: rgba(255, 255, 255, 0.7);
-
-  font-size: 12px;
 }
 
 /* -------------------------------------------------------
@@ -432,7 +280,6 @@ button:disabled {
   background: var(--surface);
 
   border: 1px solid var(--border);
-
   border-radius: var(--radius-lg);
 
   box-shadow: var(--shadow-md);
@@ -506,7 +353,7 @@ button:disabled {
 }
 
 /* -------------------------------------------------------
-   DESKTOP TABLE
+   TABLE
 ------------------------------------------------------- */
 
 .desktopTable {
@@ -656,10 +503,6 @@ button:disabled {
   white-space: nowrap;
 }
 
-.hoursPreview small {
-  color: var(--text-muted);
-}
-
 /* -------------------------------------------------------
    FORM ACTIONS
 ------------------------------------------------------- */
@@ -673,8 +516,18 @@ button:disabled {
 }
 
 .formActions .primaryButton {
+  min-height: 46px;
+
+  padding: 0 20px;
+
+  border: 1px solid var(--primary);
+  border-radius: 11px;
+
   background: var(--primary);
   color: white;
+
+  font-size: 13px;
+  font-weight: 700;
 
   box-shadow:
     0 7px 18px rgba(8, 127, 115, 0.18);
@@ -685,11 +538,19 @@ button:disabled {
 }
 
 .formActions .secondaryButton {
+  min-height: 46px;
+
+  padding: 0 20px;
+
   border: 1px solid var(--border-strong);
+  border-radius: 11px;
 
   background: white;
 
   color: var(--text-soft);
+
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .formActions .secondaryButton:hover:not(:disabled) {
@@ -723,13 +584,13 @@ button:disabled {
 
   padding: 18px 20px;
 
-  border: 1px solid #cce7df;
+  border: 1px solid #cce6df;
   border-radius: 16px;
 
   background:
     linear-gradient(
       135deg,
-      #effaf7,
+      #f0faf7,
       #e5f6f1
     );
 }
@@ -837,7 +698,6 @@ button:disabled {
 .resultHours {
   display: flex;
   flex-direction: column;
-
   align-items: flex-start;
 }
 
@@ -872,7 +732,12 @@ button:disabled {
 
   border-radius: 15px;
 
-  background: var(--navy);
+  background:
+    linear-gradient(
+      135deg,
+      #123843,
+      #174852
+    );
 
   color: white;
 }
@@ -901,18 +766,26 @@ button:disabled {
 }
 
 .resultFooter .primaryButton {
-  flex-shrink: 0;
+  min-height: 46px;
+
+  padding: 0 20px;
+
+  border: 1px solid transparent;
+  border-radius: 11px;
 
   background: var(--accent);
 
   color: white;
+
+  font-size: 13px;
+  font-weight: 700;
 
   box-shadow:
     0 6px 18px rgba(22, 160, 133, 0.22);
 }
 
 .resultFooter .primaryButton:hover:not(:disabled) {
-  background: #1ab092;
+  background: #138d76;
 }
 
 /* -------------------------------------------------------
@@ -931,13 +804,13 @@ button:disabled {
 }
 
 .infoCard {
-  min-height: 165px;
+  min-height: 175px;
 
-  padding: 24px;
+  padding: 28px;
 
   border: 1px solid var(--border);
 
-  border-radius: 17px;
+  border-radius: 18px;
 
   background: white;
 
@@ -962,18 +835,18 @@ button:disabled {
   align-items: center;
   justify-content: center;
 
-  width: 31px;
-  height: 25px;
+  min-width: 54px;
+  height: 44px;
 
-  margin-bottom: 15px;
+  margin-bottom: 16px;
 
-  border-radius: 7px;
+  border-radius: 12px;
 
   background: var(--primary-light);
 
   color: var(--primary);
 
-  font-size: 10px;
+  font-size: 25px;
   font-weight: 800;
 }
 
@@ -1019,7 +892,6 @@ button:disabled {
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {
   margin: 0;
-
   -webkit-appearance: none;
 }
 
@@ -1029,7 +901,7 @@ input[type="number"] {
 }
 
 /* -------------------------------------------------------
-   FOCUS ACCESSIBILITY
+   ACCESSIBILITY
 ------------------------------------------------------- */
 
 button:focus-visible,
@@ -1039,30 +911,17 @@ input:focus-visible {
 }
 
 /* -------------------------------------------------------
-   RESPONSIVE - TABLET
+   TABLET
 ------------------------------------------------------- */
 
 @media (max-width: 900px) {
   .calculatorPage {
     width: min(100% - 28px, 760px);
-
     padding-top: 16px;
   }
 
-  .heroCard {
-    min-height: auto;
-
-    padding: 42px 34px;
-
-    gap: 28px;
-  }
-
-  .heroContent h1 {
-    font-size: 48px;
-  }
-
-  .heroStat {
-    flex-basis: 215px;
+  .calculatorHeroTitle {
+    font-size: 52px;
   }
 
   .mainCard,
@@ -1083,104 +942,51 @@ input:focus-visible {
 
     padding: 0 12px;
   }
-
-  .timeInput {
-    padding-left: 10px;
-    padding-right: 10px;
-  }
 }
 
 /* -------------------------------------------------------
-   RESPONSIVE - MOBILE
+   MOBILE
 ------------------------------------------------------- */
 
 @media (max-width: 680px) {
   .calculatorPage {
     width: calc(100% - 20px);
-
     padding: 10px 0 35px;
   }
 
-  .topBar {
-    min-height: 60px;
-
-    margin-bottom: 18px;
+  .calculatorHero {
+    padding: 12px 0 44px;
   }
 
-  .brandIcon {
-    width: 40px;
-    height: 40px;
+  .breadcrumb {
+    gap: 9px;
+    margin-bottom: 42px;
+    font-size: 11px;
+  }
 
-    border-radius: 11px;
+  .breadcrumbArrow {
+    font-size: 18px;
+  }
 
+  .calculatorHeroTitle {
+    font-size: 39px;
+  }
+
+  .calculatorHeroText {
     font-size: 14px;
   }
 
-  .brandTitle {
-    font-size: 15px;
-  }
-
-  .brandSubtitle {
-    font-size: 10px;
-  }
-
-  .privacyBadge {
-    padding: 7px 10px;
-
-    font-size: 9px;
-  }
-
-  /* HERO */
-
-  .heroCard {
-    display: block;
-
-    padding: 34px 24px;
-
-    border-radius: 22px;
-  }
-
-  .heroContent h1 {
-    font-size: 40px;
-
-    line-height: 1.02;
-  }
-
-  .heroContent p {
-    margin-top: 17px;
-
-    font-size: 13px;
-    line-height: 1.65;
-  }
-
-  .heroActions {
+  .calculatorHeroActions {
     display: grid;
+    grid-template-columns: 1fr;
 
-    grid-template-columns: 1fr 1fr;
-
-    gap: 9px;
-
-    margin-top: 23px;
-  }
-
-  .heroActions .primaryButton,
-  .heroActions .secondaryButton {
     width: 100%;
   }
 
-  .heroStat {
+  .heroPrimaryButton,
+  .heroSecondaryButton {
     width: 100%;
-
-    margin-top: 20px;
-
-    padding: 18px;
   }
-
-  .heroStat strong {
-    font-size: 16px;
-  }
-
-  /* MAIN CARD */
 
   .mainCard,
   .resultCard {
@@ -1204,11 +1010,8 @@ input:focus-visible {
     font-size: 12px;
   }
 
-  /* TABLE */
-
   .desktopTable {
     overflow-x: auto;
-
     border-radius: 13px;
   }
 
@@ -1224,16 +1027,6 @@ input:focus-visible {
       80px;
   }
 
-  .tableHeader {
-    min-height: 42px;
-  }
-
-  .timeRow {
-    min-height: 66px;
-  }
-
-  /* ACTIONS */
-
   .formActions {
     display: grid;
 
@@ -1246,13 +1039,9 @@ input:focus-visible {
     width: 100%;
   }
 
-  /* RESULTS */
-
   .resultHeader {
     align-items: stretch;
-
     flex-direction: column;
-
     gap: 16px;
   }
 
@@ -1277,17 +1066,13 @@ input:focus-visible {
 
   .resultFooter {
     align-items: stretch;
-
     flex-direction: column;
-
     gap: 15px;
   }
 
   .resultFooter .primaryButton {
     width: 100%;
   }
-
-  /* INFO */
 
   .infoGrid {
     grid-template-columns: 1fr;
@@ -1299,7 +1084,6 @@ input:focus-visible {
 
   .infoCard {
     min-height: auto;
-
     padding: 20px;
   }
 }
@@ -1313,24 +1097,8 @@ input:focus-visible {
     width: calc(100% - 16px);
   }
 
-  .topBar {
-    padding: 0 2px;
-  }
-
-  .privacyBadge {
-    display: none;
-  }
-
-  .heroCard {
-    padding: 30px 20px;
-  }
-
-  .heroContent h1 {
+  .calculatorHeroTitle {
     font-size: 34px;
-  }
-
-  .heroActions {
-    grid-template-columns: 1fr;
   }
 
   .mainCard,
@@ -1348,7 +1116,7 @@ input:focus-visible {
 }
 
 /* -------------------------------------------------------
-   PRINT SUMMARY
+   PRINT
 ------------------------------------------------------- */
 
 @media print {
@@ -1360,12 +1128,10 @@ input:focus-visible {
     width: 100%;
 
     margin: 0;
-
     padding: 0;
   }
 
-  .topBar,
-  .heroCard,
+  .calculatorHero,
   .mainCard,
   .infoGrid,
   .siteFooter {
@@ -1376,11 +1142,9 @@ input:focus-visible {
     display: block !important;
 
     margin: 0;
-
     padding: 0;
 
     border: 0;
-
     border-radius: 0;
 
     box-shadow: none;
@@ -1413,7 +1177,6 @@ input:focus-visible {
 
   .weeklyTotalHero {
     background: white;
-
     border-color: #ccc;
   }
 
