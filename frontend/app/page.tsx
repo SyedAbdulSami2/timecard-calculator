@@ -1,2855 +1,1095 @@
-'use client'
+"use client";
 
-import { useMemo, useRef, useState } from 'react'
+import {
+  ChangeEvent,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
-type DetectedShift = {
-  label: string
-  clock_in: string
-  clock_out: string
-  break_minutes: number
-  printed_hours?: number | null
-  needs_review?: boolean
-}
 
-type ConvertedPage = {
-  page_number: number
-  width: number
-  height: number
-  image: string
-  full_ocr_image?: string
-  ocr_image?: string
-  table_image?: string
-  upper_table_image?: string
-  source_width?: number
-  source_height?: number
-  full_ocr_width?: number
-  full_ocr_height?: number
-  ocr_width?: number
-  ocr_height?: number
-  table_width?: number
-  table_height?: number
-  upper_table_width?: number
-  upper_table_height?: number
-}
-
-const API = (
+const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
-  'https://timecard-calculator-api.onrender.com'
-).replace(/\/+$/, '')
+  "https://timecard-calculator-api-docker.onrender.com";
+
 
 const DAYS = [
-  'Sunday',
-  'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday',
-]
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+] as const;
 
-/* ======================================================
-   EMPTY WEEK
-====================================================== */
 
-function manualRows(): DetectedShift[] {
+type DayName = (typeof DAYS)[number];
+
+
+type TimeRow = {
+  day: DayName;
+  clockIn: string;
+  clockOut: string;
+  breakMinutes: number;
+  needsReview: boolean;
+};
+
+
+type ExtractResponse = {
+  raw_text?: string;
+  text?: string;
+  warnings?: string[];
+  ocr_status?: string;
+  document_mode?: string;
+};
+
+
+function createEmptyWeek(): TimeRow[] {
   return DAYS.map((day) => ({
-    label: day,
-    clock_in: '',
-    clock_out: '',
-    break_minutes: 0,
-    printed_hours: null,
-    needs_review: false,
-  }))
+    day,
+    clockIn: "",
+    clockOut: "",
+    breakMinutes: 0,
+    needsReview: false,
+  }));
 }
 
-/* ======================================================
-   TIME HELPERS
-====================================================== */
 
-function normalizeTime(value: string) {
-  let text = value
+function normalizeTime(
+  rawValue: string,
+): string {
+  if (!rawValue) {
+    return "";
+  }
+
+  let value = rawValue
     .trim()
     .toUpperCase()
-    .replace(/[OQ]/g, '0')
-    .replace(/[IL|]/g, '1')
-    .replace(/\./g, ':')
-    .replace(/\s+/g, '')
+    .replace(/\./g, ":")
+    .replace(/\s+/g, "");
 
-  if (/^\d{3}$/.test(text)) {
-    text = `${text.slice(0, 1)}:${text.slice(1)}`
+  value = value
+    .replace(/(?<=\d)O(?=\d)/g, "0")
+    .replace(/(?<=\d)[IL](?=\d)/g, "1");
+
+  const meridiemMatch = value.match(
+    /(AM|PM)$/,
+  );
+
+  const meridiem = meridiemMatch?.[1] || "";
+
+  value = value.replace(
+    /(AM|PM)$/,
+    "",
+  );
+
+  let hour: number;
+  let minute: number;
+
+  if (/^\d{1,2}:\d{2}$/.test(value)) {
+    const [hourText, minuteText] =
+      value.split(":");
+
+    hour = Number(hourText);
+    minute = Number(minuteText);
+  } else if (/^\d{3}$/.test(value)) {
+    hour = Number(value.slice(0, 1));
+    minute = Number(value.slice(1));
+  } else if (/^\d{4}$/.test(value)) {
+    hour = Number(value.slice(0, 2));
+    minute = Number(value.slice(2));
+  } else {
+    return "";
   }
-
-  if (/^\d{4}$/.test(text)) {
-    text = `${text.slice(0, 2)}:${text.slice(2)}`
-  }
-
-  return text
-}
-
-function parseTime(
-  value: string
-): number | null {
-  if (!value?.trim()) {
-    return null
-  }
-
-  let text =
-    normalizeTime(value)
-
-  let meridiem = ''
-
-  const meridiemMatch =
-    text.match(/(AM|PM)$/)
-
-  if (meridiemMatch) {
-    meridiem =
-      meridiemMatch[1]
-
-    text =
-      text.replace(
-        /(AM|PM)$/,
-        ''
-      )
-  }
-
-  const match =
-    text.match(
-      /^(\d{1,2}):(\d{2})$/
-    )
-
-  if (!match) {
-    return null
-  }
-
-  let hours =
-    Number(match[1])
-
-  const minutes =
-    Number(match[2])
 
   if (
-    Number.isNaN(hours) ||
-    Number.isNaN(minutes) ||
-    minutes < 0 ||
-    minutes > 59
+    Number.isNaN(hour) ||
+    Number.isNaN(minute) ||
+    minute < 0 ||
+    minute > 59
   ) {
-    return null
+    return "";
   }
 
   if (meridiem) {
-    if (
-      hours < 1 ||
-      hours > 12
-    ) {
-      return null
+    if (hour < 1 || hour > 12) {
+      return "";
     }
 
-    if (hours === 12) {
-      hours = 0
+    if (hour === 12) {
+      hour = 0;
     }
 
-    if (
-      meridiem === 'PM'
-    ) {
-      hours += 12
+    if (meridiem === "PM") {
+      hour += 12;
     }
-  } else if (
-    hours > 23
-  ) {
-    return null
+  } else if (hour < 0 || hour > 23) {
+    return "";
   }
 
-  return (
-    hours * 60 +
-    minutes
-  )
+  return `${String(hour).padStart(
+    2,
+    "0",
+  )}:${String(minute).padStart(
+    2,
+    "0",
+  )}`;
 }
 
-function getShiftMinutes(
+
+function timeToMinutes(
+  value: string,
+): number | null {
+  const normalized =
+    normalizeTime(value);
+
+  if (!normalized) {
+    return null;
+  }
+
+  const [hour, minute] =
+    normalized
+      .split(":")
+      .map(Number);
+
+  return hour * 60 + minute;
+}
+
+
+function calculateWorkedMinutes(
   clockIn: string,
   clockOut: string,
-  breakMinutes = 0
-) {
+  breakMinutes: number,
+): number {
   const start =
-    parseTime(clockIn)
+    timeToMinutes(clockIn);
 
   const end =
-    parseTime(clockOut)
+    timeToMinutes(clockOut);
 
   if (
     start === null ||
     end === null
   ) {
-    return 0
+    return 0;
   }
 
-  let duration =
-    end - start
+  let worked = end - start;
 
-  if (duration < 0) {
-    duration +=
-      24 * 60
+  if (worked < 0) {
+    worked += 24 * 60;
   }
 
-  duration -= Math.max(
+  worked -= Math.max(
     0,
-    Number(
-      breakMinutes || 0
-    )
-  )
+    Number(breakMinutes) || 0,
+  );
 
   return Math.max(
     0,
-    duration
-  )
+    worked,
+  );
 }
 
-function isPlausibleShift(
-  clockIn: string,
-  clockOut: string
-) {
-  const start =
-    parseTime(clockIn)
 
-  const end =
-    parseTime(clockOut)
-
-  if (
-    start === null ||
-    end === null
-  ) {
-    return false
+function formatMinutes(
+  totalMinutes: number,
+): string {
+  if (!totalMinutes) {
+    return "—";
   }
 
-  let duration =
-    end - start
+  const hours = Math.floor(
+    totalMinutes / 60,
+  );
 
-  if (duration < 0) {
-    duration +=
-      24 * 60
-  }
-
-  if (
-    duration < 15
-  ) {
-    return false
-  }
-
-  if (
-    duration >
-    20 * 60
-  ) {
-    return false
-  }
-
-  return true
-}
-
-function decimalHours(
-  minutes: number
-) {
-  return (
-    minutes / 60
-  ).toFixed(2)
-}
-
-function hoursMinutes(
-  minutes: number
-) {
-  const hours =
-    Math.floor(
-      minutes / 60
-    )
-
-  const mins =
-    minutes % 60
+  const minutes =
+    totalMinutes % 60;
 
   return `${hours}:${String(
-    mins
-  ).padStart(2, '0')}`
+    minutes,
+  ).padStart(2, "0")}`;
 }
 
-/* ======================================================
-   DATE → WEEKDAY
-====================================================== */
 
-function dateToWeekday(
-  dateText: string
-): string | null {
-  const match =
-    dateText.match(
-      /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/
-    )
-
-  if (!match) {
-    return null
+function formatDecimal(
+  totalMinutes: number,
+): string {
+  if (!totalMinutes) {
+    return "0.00";
   }
 
-  const month =
-    Number(match[1])
-
-  const day =
-    Number(match[2])
-
-  let year =
-    Number(match[3])
-
-  if (year < 100) {
-    year += 2000
-  }
-
-  const date =
-    new Date(
-      year,
-      month - 1,
-      day
-    )
-
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
-    return null
-  }
-
-  const weekday =
-    date.toLocaleDateString(
-      'en-US',
-      {
-        weekday:
-          'long',
-      }
-    )
-
-  return DAYS.includes(
-    weekday
-  )
-    ? weekday
-    : null
+  return (
+    totalMinutes / 60
+  ).toFixed(2);
 }
 
-/* ======================================================
-   DAY HELPERS
-====================================================== */
-
-function normalizeDay(
-  value: string
-) {
-  const day =
-    value.toLowerCase()
-
-  if (
-    day.startsWith('sun')
-  ) {
-    return 'Sunday'
-  }
-
-  if (
-    day.startsWith('mon')
-  ) {
-    return 'Monday'
-  }
-
-  if (
-    day.startsWith('tue')
-  ) {
-    return 'Tuesday'
-  }
-
-  if (
-    day.startsWith('wed')
-  ) {
-    return 'Wednesday'
-  }
-
-  if (
-    day.startsWith('thu')
-  ) {
-    return 'Thursday'
-  }
-
-  if (
-    day.startsWith('fri')
-  ) {
-    return 'Friday'
-  }
-
-  if (
-    day.startsWith('sat')
-  ) {
-    return 'Saturday'
-  }
-
-  return value
-}
-
-/* ======================================================
-   FIND TIMES
-====================================================== */
 
 function findTimes(
-  text: string
-) {
-  const cleaned = text
-    .toUpperCase()
-    .replace(/[OQ]/g, '0')
-    .replace(/[IL|]/g, '1')
-    .replace(/[;,]/g, ':')
-    .replace(/[–—−]/g, '-')
-
-  const candidates =
-    cleaned.match(
-      /(?:\b\d{1,2}\s*[:.]\s*\d{2}\b|\b\d{3,4}\b)\s*(?:A\s*M|P\s*M|AM|PM)?/g
-    ) || []
-
-  const result:
-    string[] = []
-
-  for (
-    const candidate
-    of candidates
-  ) {
-    let value =
-      candidate
-        .replace(
-          /\s+/g,
-          ''
-        )
-        .replace(
-          '.',
-          ':'
-        )
-        .replace(
-          /A\s*M/i,
-          'AM'
-        )
-        .replace(
-          /P\s*M/i,
-          'PM'
-        )
-
-    const threeDigit =
-      value.match(
-        /^(\d)(\d{2})(AM|PM)?$/
-      )
-
-    if (threeDigit) {
-      value =
-        `${threeDigit[1]}:${threeDigit[2]}${threeDigit[3] || ''}`
-    }
-
-    const fourDigit =
-      value.match(
-        /^(\d{2})(\d{2})(AM|PM)?$/
-      )
-
-    if (fourDigit) {
-      value =
-        `${fourDigit[1]}:${fourDigit[2]}${fourDigit[3] || ''}`
-    }
-
-    const normalized =
-      normalizeTime(
-        value
-      )
-
-    if (
-      parseTime(
-        normalized
-      ) !== null
-    ) {
-      result.push(
-        normalized
-      )
-    }
-  }
-
-  return result
-}
-
-/* ======================================================
-   DETECT LABEL
-====================================================== */
-
-function detectLabel(
   text: string,
-  index: number
-) {
-  const dayMatch =
+): string[] {
+  const matches =
     text.match(
-      /\b(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sun|Mon|Tue|Tues|Wed|Thu|Thur|Thurs|Fri|Sat)\b/i
-    )
+      /\b(?:\d{1,2}:\d{2}\s*(?:AM|PM)?|\d{3,4}\s*(?:AM|PM)?)\b/gi,
+    ) || [];
 
-  if (dayMatch) {
-    return normalizeDay(
-      dayMatch[1]
-    )
-  }
+  const results: string[] = [];
 
-  const dateMatch =
-    text.match(
-      /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/
-    )
-
-  if (dateMatch) {
-    const weekday =
-      dateToWeekday(
-        dateMatch[0]
-      )
-
-    if (weekday) {
-      return weekday
-    }
-  }
-
-  return `Shift ${index + 1}`
-}
-
-/* ======================================================
-   BREAK
-====================================================== */
-
-function detectBreak(
-  text: string
-) {
-  const minuteMatch =
-    text.match(
-      /(?:break|meal|lunch)[^0-9]{0,20}(\d{1,3})\s*(?:min|mins|minutes)?/i
-    )
-
-  if (minuteMatch) {
-    const value =
-      Number(
-        minuteMatch[1]
-      )
+  for (const match of matches) {
+    const normalized =
+      normalizeTime(match);
 
     if (
-      !Number.isNaN(
-        value
-      ) &&
-      value >= 0 &&
-      value <= 180
+      normalized &&
+      !results.includes(normalized)
     ) {
-      return value
+      results.push(normalized);
     }
   }
 
-  const timeMatch =
-    text.match(
-      /(\d{1,2})\s*:\s*(\d{2})\s*(?:break|meal|lunch)/i
-    )
-
-  if (timeMatch) {
-    const hours =
-      Number(
-        timeMatch[1]
-      )
-
-    const minutes =
-      Number(
-        timeMatch[2]
-      )
-
-    const total =
-      hours * 60 +
-      minutes
-
-    if (
-      total >= 0 &&
-      total <= 180
-    ) {
-      return total
-    }
-  }
-
-  return 0
+  return results;
 }
 
-/* ======================================================
-   PRINTED HOURS
-====================================================== */
 
-function detectPrintedHours(
-  text: string
-) {
-  const patterns = [
-    /daily\s*total\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
-    /hours?\s*(?:worked)?\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
-    /total\s*hours?\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
-  ]
+function dayFromText(
+  text: string,
+): DayName | null {
+  const lower =
+    text.toLowerCase();
 
-  for (
-    const pattern
-    of patterns
-  ) {
-    const match =
-      text.match(
-        pattern
-      )
-
-    if (!match) {
-      continue
-    }
-
-    const value =
-      Number(
-        match[1]
-      )
-
-    if (
-      !Number.isNaN(
-        value
-      ) &&
-      value >= 0 &&
-      value <= 24
-    ) {
-      return value
-    }
-  }
-
-  return null
-}
-
-/* ======================================================
-   ADD DETECTED SHIFT
-====================================================== */
-
-function addCandidate(
-  result: DetectedShift[],
-  sourceText: string,
-  start: string,
-  end: string
-) {
-  const normalizedStart =
-    normalizeTime(start)
-
-  const normalizedEnd =
-    normalizeTime(end)
-
-  if (
-    !isPlausibleShift(
-      normalizedStart,
-      normalizedEnd
-    )
-  ) {
-    return
-  }
-
-  const label =
-    detectLabel(
-      sourceText,
-      result.length
-    )
-
-  const duplicate =
-    result.some(
-      (row) =>
-        row.label ===
-          label &&
-        row.clock_in ===
-          normalizedStart &&
-        row.clock_out ===
-          normalizedEnd
-    )
-
-  if (duplicate) {
-    return
-  }
-
-  const breakMinutes =
-    detectBreak(
-      sourceText
-    )
-
-  const printedHours =
-    detectPrintedHours(
-      sourceText
-    )
-
-  const calculatedHours =
-    getShiftMinutes(
-      normalizedStart,
-      normalizedEnd,
-      breakMinutes
-    ) / 60
-
-  const needsReview =
-    printedHours !==
-      null &&
-    Math.abs(
-      calculatedHours -
-        printedHours
-    ) > 0.25
-
-  result.push({
-    label,
-
-    clock_in:
-      normalizedStart,
-
-    clock_out:
-      normalizedEnd,
-
-    break_minutes:
-      breakMinutes,
-
-    printed_hours:
-      printedHours,
-
-    needs_review:
-      needsReview,
-  })
-}
-
-/* ======================================================
-   BUILD WEEK
-====================================================== */
-
-function buildWeeklyRows(
-  detected: DetectedShift[]
-): DetectedShift[] {
-  const week =
-    manualRows()
-
-  for (
-    const row
-    of detected
-  ) {
-    const weekday =
-      DAYS.find(
-        (day) =>
-          day.toLowerCase() ===
-          row.label.toLowerCase()
-      )
-
-    if (!weekday) {
-      continue
-    }
-
-    const index =
-      DAYS.indexOf(
-        weekday
-      )
-
-    week[index] = {
-      ...row,
-      label:
-        weekday,
-    }
-  }
-
-  return week
-}
-
-/* ======================================================
-   HIGH-RESOLUTION OCR
-====================================================== */
-
-type OcrSource = {
-  label: string
-  image: string
-}
-
-async function recognizeImageSource(
-  source: OcrSource,
-  pageNumber: number
-) {
-  const Tesseract =
-    await import(
-      'tesseract.js'
-    )
-
-  /*
-   * PASS 1
-   * General OCR reads weekday/date labels and printed text.
-   */
-  const general =
-    await Tesseract.recognize(
-      source.image,
-      'eng',
-      {
-        logger: (
-          progress: any
-        ) => {
-          if (
-            progress.status ===
-            'recognizing text'
-          ) {
-            console.log(
-              `General OCR page ${pageNumber} / ${source.label}:`,
-              Math.round(
-                (
-                  progress.progress ||
-                  0
-                ) * 100
-              ),
-              '%'
-            )
-          }
-        },
-      }
-    )
-
-  /*
-   * PASS 2
-   * Restricted OCR gives Tesseract a much smaller alphabet
-   * for clock values and dates.
-   */
-  const timeWorker =
-    await Tesseract.createWorker(
-      'eng'
-    )
-
-  try {
-    await timeWorker.setParameters({
-      tessedit_char_whitelist:
-        '0123456789:/.-AMPamp ',
-
-      preserve_interword_spaces:
-        '1',
-
-      user_defined_dpi:
-        '300',
-    })
-
-    const timeResult =
-      await timeWorker.recognize(
-        source.image
-      )
-
-    const generalText =
-      general.data.text ||
-      ''
-
-    const timeText =
-      timeResult.data.text ||
-      ''
-
-    console.log(
-      `GENERAL OCR page ${pageNumber} / ${source.label}:`,
-      generalText
-    )
-
-    console.log(
-      `TIME OCR page ${pageNumber} / ${source.label}:`,
-      timeText
-    )
-
-    return [
-      generalText,
-      timeText,
-    ]
-      .filter(Boolean)
-      .join('\n')
-      .trim()
-  } finally {
-    await timeWorker.terminate()
-  }
-}
-
-function getPageOcrSources(
-  page: ConvertedPage
-): OcrSource[] {
-  const candidates: Array<
-    OcrSource | null
+  const patterns: Array<
+    [RegExp, DayName]
   > = [
-    page.table_image
-      ? {
-          label: 'table',
-          image: page.table_image,
-        }
-      : null,
+    [/\bsun(?:day)?\b/i, "Sunday"],
+    [/\bmon(?:day)?\b/i, "Monday"],
+    [/\btue(?:s|sday|day)?\b/i, "Tuesday"],
+    [/\bwed(?:nesday)?\b/i, "Wednesday"],
+    [/\bthu(?:r|rs|rsday|rday)?\b/i, "Thursday"],
+    [/\bfri(?:day)?\b/i, "Friday"],
+    [/\bsat(?:urday)?\b/i, "Saturday"],
+  ];
 
-    page.upper_table_image
-      ? {
-          label: 'upper-table',
-          image: page.upper_table_image,
-        }
-      : null,
-
-    page.ocr_image
-      ? {
-          label: 'timecard',
-          image: page.ocr_image,
-        }
-      : null,
-
-    page.full_ocr_image
-      ? {
-          label: 'full-ocr',
-          image: page.full_ocr_image,
-        }
-      : null,
-
-    page.image
-      ? {
-          label: 'preview',
-          image: page.image,
-        }
-      : null,
-  ]
-
-  const unique: OcrSource[] = []
-  const seen =
-    new Set<string>()
-
-  for (
-    const candidate
-    of candidates
-  ) {
-    if (!candidate) {
-      continue
+  for (const [
+    pattern,
+    day,
+  ] of patterns) {
+    if (pattern.test(lower)) {
+      return day;
     }
-
-    if (
-      seen.has(
-        candidate.image
-      )
-    ) {
-      continue
-    }
-
-    seen.add(
-      candidate.image
-    )
-
-    unique.push(
-      candidate
-    )
   }
 
-  return unique
+  return null;
 }
 
-/* ======================================================
-   READ CONVERTED PAGES
-====================================================== */
 
-async function readConvertedPages(
-  pages: ConvertedPage[],
-  onProgress?: (
-    current: number,
-    total: number
-  ) => void
-) {
-  const allTexts:
-    string[] = []
+function parseOcrWeek(
+  rawText: string,
+): TimeRow[] {
+  const week =
+    createEmptyWeek();
 
-  for (
-    let pageIndex = 0;
-    pageIndex <
-      pages.length;
-    pageIndex++
-  ) {
-    const page =
-      pages[
-        pageIndex
-      ]
-
-    onProgress?.(
-      pageIndex + 1,
-      pages.length
-    )
-
-    const sources =
-      getPageOcrSources(
-        page
-      )
-
-    let pageDetectedTimes = 0
-
-    for (
-      let sourceIndex = 0;
-      sourceIndex <
-        sources.length;
-      sourceIndex++
-    ) {
-      const source =
-        sources[
-          sourceIndex
-        ]
-
-      /*
-       * The backend now returns high-resolution PNG crops.
-       * OCR those directly. Do not resize/threshold them again
-       * in the browser because that previously destroyed thin
-       * digits and colons.
-       */
-      try {
-        const text =
-          await recognizeImageSource(
-            source,
-            pageIndex + 1
-          )
-
-        if (
-          text &&
-          text.trim()
-        ) {
-          const sourceTimes =
-            findTimes(
-              text
-            )
-
-          pageDetectedTimes +=
-            sourceTimes.length
-
-          console.log(
-            `OCR TIMES page ${pageIndex + 1} / ${source.label}:`,
-            sourceTimes
-          )
-
-          allTexts.push(
-            [
-              `OCR_REGION_page-${pageIndex + 1}-${source.label}`,
-              text.trim(),
-              'END_OCR_REGION',
-            ].join('\n')
-          )
-        }
-      } catch (
-        error
-      ) {
-        console.warn(
-          `Could not OCR page ${pageIndex + 1} / ${source.label}:`,
-          error
-        )
-      }
-
-      /*
-       * Preview JPEG is only a final fallback.
-       * If the high-resolution sources already produced
-       * several clock-like values, skip the preview.
-       */
-      const nextSource =
-        sources[
-          sourceIndex + 1
-        ]
-
-      if (
-        nextSource?.label ===
-          'preview' &&
-        pageDetectedTimes >= 4
-      ) {
-        break
-      }
-    }
+  if (!rawText.trim()) {
+    return week;
   }
 
-  return allTexts.join(
-    '\n\n'
-  )
-}
+  const cleaned = rawText
+    .replace(/\r/g, "\n")
+    .replace(/[|]+/g, " ")
+    .replace(/[ \t]+/g, " ");
 
-/* ======================================================
-   UNIVERSAL PARSER
-====================================================== */
-
-function parseUniversalTimecard(
-  text: string
-) {
-  const cleaned =
-    text
-      .replace(
-        /\r/g,
-        '\n'
-      )
-      .replace(
-        /[–—−]/g,
-        '-'
-      )
-
-  const detected:
-    DetectedShift[] = []
-
-  /*
-   * ================================================
-   * PASS 1
-   * Parse individual OCR regions.
-   * ================================================
-   */
-
-  const regionMatches =
-    cleaned.match(
-      /OCR_REGION_[^\n]+\n([\s\S]*?)\nEND_OCR_REGION/g
-    ) || []
-
-  for (
-    const regionBlock
-    of regionMatches
-  ) {
-    const regionText =
-      regionBlock
-        .replace(
-          /^OCR_REGION_[^\n]+\n/,
-          ''
-        )
-        .replace(
-          /\nEND_OCR_REGION$/,
-          ''
-        )
-        .trim()
-
-    if (!regionText) {
-      continue
-    }
-
-    const times =
-      findTimes(
-        regionText
-      )
-
-    console.log(
-      'REGION TEXT:',
-      regionText
-    )
-
-    console.log(
-      'REGION TIMES:',
-      times
-    )
-
-    if (
-      times.length <
-      2
-    ) {
-      continue
-    }
-
-    /*
-     * Test every adjacent pair.
-     */
-    for (
-      let index = 0;
-      index + 1 <
-        times.length;
-      index++
-    ) {
-      const start =
-        times[
-          index
-        ]
-
-      const end =
-        times[
-          index + 1
-        ]
-
-      if (
-        !isPlausibleShift(
-          start,
-          end
-        )
-      ) {
-        continue
-      }
-
-      addCandidate(
-        detected,
-        regionText,
-        start,
-        end
-      )
-
-      break
-    }
-  }
-
-  /*
-   * ================================================
-   * PASS 2
-   * Normal individual lines.
-   * ================================================
-   */
-
-  const lines =
-    cleaned
-      .replace(
-        /OCR_REGION_[^\n]+/g,
-        ''
-      )
-      .replace(
-        /END_OCR_REGION/g,
-        ''
-      )
-      .split('\n')
-      .map(
-        (line) =>
-          line.trim()
-      )
-      .filter(
-        Boolean
-      )
-
-  for (
-    const line
-    of lines
-  ) {
-    const times =
-      findTimes(
-        line
-      )
-
-    if (
-      times.length <
-      2
-    ) {
-      continue
-    }
-
-    for (
-      let index = 0;
-      index + 1 <
-        times.length;
-      index++
-    ) {
-      const start =
-        times[
-          index
-        ]
-
-      const end =
-        times[
-          index + 1
-        ]
-
-      if (
-        !isPlausibleShift(
-          start,
-          end
-        )
-      ) {
-        continue
-      }
-
-      addCandidate(
-        detected,
-        line,
-        start,
-        end
-      )
-
-      break
-    }
-  }
-
-  /*
-   * ================================================
-   * PASS 3
-   * Nearby lines with day/date.
-   * ================================================
-   */
+  const lines = cleaned
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
 
   for (
     let index = 0;
-    index <
-      lines.length;
-    index++
+    index < lines.length;
+    index += 1
   ) {
-    const block =
-      lines
-        .slice(
-          index,
-          index + 7
-        )
-        .join(' ')
+    const currentLine =
+      lines[index];
 
-    const hasDay =
-      /\b(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sun|Mon|Tue|Tues|Wed|Thu|Thur|Thurs|Fri|Sat)\b/i.test(
-        block
+    const day =
+      dayFromText(currentLine);
+
+    if (!day) {
+      continue;
+    }
+
+    /*
+     * Read the current row plus a few following OCR lines.
+     * OCR frequently breaks one table row over several lines.
+     */
+    const block = lines
+      .slice(
+        index,
+        index + 4,
       )
+      .join(" ");
 
-    const hasDate =
-      /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/.test(
-        block
-      )
+    let times =
+      findTimes(block);
 
+    /*
+     * Remove values that are very likely dates.
+     * Example:
+     * 02/26/23
+     */
+    times = times.filter(
+      (time) => {
+        const [
+          hour,
+          minute,
+        ] = time
+          .split(":")
+          .map(Number);
+
+        return !(
+          hour > 23 ||
+          minute > 59
+        );
+      },
+    );
+
+    if (times.length < 2) {
+      continue;
+    }
+
+    const dayIndex =
+      DAYS.indexOf(day);
+
+    /*
+     * Initially use first and last detected times.
+     *
+     * This works better than blindly using the first two
+     * when a timecard contains lunch-out/lunch-in values.
+     */
+    const clockIn =
+      times[0];
+
+    const clockOut =
+      times[times.length - 1];
+
+    const duration =
+      calculateWorkedMinutes(
+        clockIn,
+        clockOut,
+        0,
+      );
+
+    /*
+     * Reject obviously impossible OCR matches.
+     */
     if (
-      !hasDay &&
-      !hasDate
+      duration <= 0 ||
+      duration > 18 * 60
     ) {
-      continue
+      continue;
     }
 
-    const times =
-      findTimes(
-        block
-      )
-
-    if (
-      times.length <
-      2
-    ) {
-      continue
-    }
-
-    for (
-      let timeIndex = 0;
-      timeIndex + 1 <
-        times.length;
-      timeIndex++
-    ) {
-      const start =
-        times[
-          timeIndex
-        ]
-
-      const end =
-        times[
-          timeIndex + 1
-        ]
-
-      if (
-        !isPlausibleShift(
-          start,
-          end
-        )
-      ) {
-        continue
-      }
-
-      addCandidate(
-        detected,
-        block,
-        start,
-        end
-      )
-
-      break
-    }
+    week[dayIndex] = {
+      ...week[dayIndex],
+      clockIn,
+      clockOut,
+      needsReview:
+        times.length > 2,
+    };
   }
 
-  console.log(
-    'ALL RAW DETECTED ROWS:',
-    detected
-  )
-
-  return buildWeeklyRows(
-    detected
-  )
+  return week;
 }
 
-/* ======================================================
-   BACKEND CONVERTER
-====================================================== */
-
-async function convertUploadedDocument(
-  file: File
-): Promise<ConvertedPage[]> {
-  const form =
-    new FormData()
-
-  form.append(
-    'file',
-    file
-  )
-
-  const response =
-    await fetch(
-      `${API}/convert-timecard`,
-      {
-        method:
-          'POST',
-
-        body:
-          form,
-      }
-    )
-
-  let data: any
-
-  try {
-    data =
-      await response.json()
-  } catch {
-    throw new Error(
-      'The document converter returned an invalid response.'
-    )
-  }
-
-  if (
-    !response.ok
-  ) {
-    throw new Error(
-      data?.detail ||
-        'Could not prepare this document.'
-    )
-  }
-
-  if (
-    !Array.isArray(
-      data.pages
-    ) ||
-    data.pages.length ===
-      0
-  ) {
-    throw new Error(
-      'The document was converted, but no pages were returned.'
-    )
-  }
-
-  return data.pages
-}
-
-/* ======================================================
-   PAGE
-====================================================== */
 
 export default function Home() {
+  const fileInputRef =
+    useRef<HTMLInputElement | null>(
+      null,
+    );
+
   const [
     rows,
     setRows,
-  ] =
-    useState<
-      DetectedShift[]
-    >(
-      manualRows()
-    )
+  ] = useState<TimeRow[]>(
+    createEmptyWeek,
+  );
 
   const [
-    mode,
-    setMode,
-  ] =
-    useState<
-      'manual' |
-      'upload'
-    >(
-      'manual'
-    )
-
-  const [
-    submitted,
-    setSubmitted,
-  ] =
-    useState(
-      false
-    )
+    uploading,
+    setUploading,
+  ] = useState(false);
 
   const [
     message,
     setMessage,
-  ] =
-    useState(
-      ''
-    )
+  ] = useState(
+    "Upload a timecard or enter hours manually.",
+  );
 
   const [
-    readingFile,
-    setReadingFile,
-  ] =
-    useState(
-      false
-    )
-
-  const fileRef =
-    useRef<HTMLInputElement>(
-      null
-    )
-
-  /* ======================================================
-     EMPLOYEE
-  ====================================================== */
+    uploadedFile,
+    setUploadedFile,
+  ] = useState("");
 
   const [
-    employeeName,
-    setEmployeeName,
-  ] =
-    useState('')
+    ocrText,
+    setOcrText,
+  ] = useState("");
 
-  const [
-    employeeId,
-    setEmployeeId,
-  ] =
-    useState('')
 
-  const [
-    manager,
-    setManager,
-  ] =
-    useState('')
-
-  const [
-    department,
-    setDepartment,
-  ] =
-    useState('')
-
-  /* ======================================================
-     PAY
-  ====================================================== */
-
-  const [
-    hourlyRate,
-    setHourlyRate,
-  ] =
-    useState('')
-
-  const [
-    currency,
-    setCurrency,
-  ] =
-    useState('$')
-
-  const [
-    standardWeeklyHours,
-    setStandardWeeklyHours,
-  ] =
-    useState('40')
-
-  const [
-    standardDailyHours,
-    setStandardDailyHours,
-  ] =
-    useState('8')
-
-  const [
-    overtimeRule,
-    setOvertimeRule,
-  ] =
-    useState<
-      'none' |
-      'weekly' |
-      'daily'
-    >(
-      'none'
-    )
-
-  const [
-    overtimeMultiplier,
-    setOvertimeMultiplier,
-  ] =
-    useState('1.5')
-
-  /* ======================================================
-     PAY PERIOD
-  ====================================================== */
-
-  const [
-    weekStartDate,
-    setWeekStartDate,
-  ] =
-    useState('')
-
-  const [
-    weekEndDate,
-    setWeekEndDate,
-  ] =
-    useState('')
-
-  const [
-    payPeriod,
-    setPayPeriod,
-  ] =
-    useState<
-      'weekly' |
-      'biweekly' |
-      'semimonthly'
-    >(
-      'weekly'
-    )
-
-  const [
-    notes,
-    setNotes,
-  ] =
-    useState('')
-
-  /* ======================================================
-     TOTALS
-  ====================================================== */
-
-  const workedMinutes =
+  const calculatedRows =
     useMemo(
       () =>
-        rows.map(
-          (
-            row
-          ) =>
-            getShiftMinutes(
-              row.clock_in,
-              row.clock_out,
-              row.break_minutes
-            )
-        ),
-      [
-        rows,
-      ]
-    )
+        rows.map((row) => {
+          const minutes =
+            calculateWorkedMinutes(
+              row.clockIn,
+              row.clockOut,
+              row.breakMinutes,
+            );
+
+          return {
+            ...row,
+            minutes,
+            decimalHours:
+              formatDecimal(
+                minutes,
+              ),
+          };
+        }),
+      [rows],
+    );
+
 
   const totalMinutes =
     useMemo(
       () =>
-        workedMinutes.reduce(
+        calculatedRows.reduce(
           (
             total,
-            value
+            row,
           ) =>
             total +
-            value,
-          0
+            row.minutes,
+          0,
         ),
-      [
-        workedMinutes,
-      ]
-    )
+      [calculatedRows],
+    );
 
-  /* ======================================================
-     UPDATE ROW
-  ====================================================== */
 
   function updateRow(
     index: number,
-    key:
-      keyof DetectedShift,
-    value: any
+    field:
+      | "clockIn"
+      | "clockOut"
+      | "breakMinutes",
+    value: string | number,
   ) {
     setRows(
-      (
-        current
-      ) =>
-        current.map(
+      (currentRows) =>
+        currentRows.map(
           (
             row,
-            rowIndex
-          ) =>
-            rowIndex ===
-            index
-              ? {
-                  ...row,
-                  [key]:
-                    value,
-                }
-              : row
-        )
-    )
+            rowIndex,
+          ) => {
+            if (
+              rowIndex !==
+              index
+            ) {
+              return row;
+            }
 
-    setSubmitted(
-      false
-    )
+            return {
+              ...row,
+              [field]:
+                field ===
+                "breakMinutes"
+                  ? Math.max(
+                      0,
+                      Number(
+                        value,
+                      ) || 0,
+                    )
+                  : value,
+              needsReview:
+                false,
+            };
+          },
+        ),
+    );
   }
 
-  /* ======================================================
-     MANUAL
-  ====================================================== */
 
-  function startManual() {
-    setRows(
-      manualRows()
-    )
-
-    setMode(
-      'manual'
-    )
-
-    setSubmitted(
-      false
-    )
-
-    setMessage(
-      ''
-    )
-
-    setTimeout(
-      () => {
-        document
-          .getElementById(
-            'calculator'
-          )
-          ?.scrollIntoView({
-            behavior:
-              'smooth',
-          })
-      },
-      50
-    )
-  }
-
-  /* ======================================================
-     UPLOAD
-  ====================================================== */
-
-  async function upload(
-    file?: File
+  async function handleFile(
+    event: ChangeEvent<HTMLInputElement>,
   ) {
+    const file =
+      event.target.files?.[0];
+
     if (!file) {
-      return
+      return;
     }
 
-    setMode(
-      'upload'
-    )
-
-    setSubmitted(
-      false
-    )
-
-    setReadingFile(
-      true
-    )
+    setUploading(true);
+    setUploadedFile(
+      file.name,
+    );
 
     setMessage(
-      'Preparing your timecard…'
-    )
+      "Reading timecard...",
+    );
 
     try {
-      const pages =
-        await convertUploadedDocument(
-          file
-        )
+      const formData =
+        new FormData();
 
-      setMessage(
-        `Document prepared. Reading ${pages.length} page(s)…`
-      )
+      formData.append(
+        "file",
+        file,
+      );
 
-      const text =
-        await readConvertedPages(
-          pages,
-          (
-            current,
-            total
-          ) => {
-            setMessage(
-              `Reading timecard page ${current} of ${total}…`
-            )
-          }
-        )
+      /*
+       * We use /extract because this endpoint currently
+       * performs the working Docker/Tesseract OCR.
+       */
+      const response =
+        await fetch(
+          `${API_URL}/extract`,
+          {
+            method: "POST",
+            body: formData,
+          },
+        );
 
-      console.log(
-        'FULL OCR TEXT:',
-        text
-      )
+      if (!response.ok) {
+        let detail =
+          "Could not read the timecard.";
 
-      console.log(
-        'OCR LENGTH:',
-        text.length
-      )
+        try {
+          const error =
+            await response.json();
 
-      console.log(
-        'OCR TIMES:',
-        findTimes(
-          text
-        )
-      )
+          detail =
+            error?.detail ||
+            detail;
+        } catch {
+          // Ignore JSON parse failure.
+        }
 
-      if (
-        !text ||
-        text.trim().length <
-          5
-      ) {
         throw new Error(
-          'The document was prepared successfully, but no readable text was detected.'
-        )
+          detail,
+        );
       }
 
-      const detected =
-        parseUniversalTimecard(
-          text
-        )
+      const data: ExtractResponse =
+        await response.json();
 
-      console.log(
-        'DETECTED WEEK:',
-        detected
-      )
+      const rawText =
+        data.raw_text ||
+        data.text ||
+        "";
 
-      const detectedCount =
-        detected.filter(
-          (
-            row
-          ) =>
-            row.clock_in &&
-            row.clock_out
-        ).length
+      setOcrText(
+        rawText,
+      );
 
       if (
-        detectedCount ===
-        0
+        !rawText.trim()
       ) {
         setRows(
-          manualRows()
-        )
-
-        setMode(
-          'manual'
-        )
-
-        setSubmitted(
-          false
-        )
+          createEmptyWeek(),
+        );
 
         setMessage(
-          'The document was read successfully, but reliable clock-in and clock-out pairs were not detected. Please enter or correct the shifts manually.'
-        )
+          "The document was opened, but readable work times were not detected. Please enter them manually.",
+        );
 
-        return
+        return;
       }
 
+      const detectedWeek =
+        parseOcrWeek(
+          rawText,
+        );
+
+      const detectedCount =
+        detectedWeek.filter(
+          (row) =>
+            row.clockIn &&
+            row.clockOut,
+        ).length;
+
       setRows(
-        detected
-      )
-
-      setSubmitted(
-        true
-      )
-
-      const reviewCount =
-        detected.filter(
-          (
-            row
-          ) =>
-            row.clock_in &&
-            row.clock_out &&
-            row.needs_review
-        ).length
+        detectedWeek,
+      );
 
       if (
-        reviewCount >
-        0
+        detectedCount === 0
       ) {
         setMessage(
-          `${detectedCount} workday(s) detected. ${reviewCount} row(s) should be reviewed before using the final total.`
-        )
+          "The document was read, but reliable clock-in and clock-out pairs were not detected. Please enter or correct the times manually.",
+        );
       } else {
-        setMessage(
-          `${detectedCount} workday(s) detected. Please verify the extracted times.`
-        )
+        const reviewCount =
+          detectedWeek.filter(
+            (row) =>
+              row.needsReview,
+          ).length;
+
+        if (
+          reviewCount > 0
+        ) {
+          setMessage(
+            `${detectedCount} workday(s) detected. ${reviewCount} row(s) should be reviewed.`,
+          );
+        } else {
+          setMessage(
+            `${detectedCount} workday(s) detected. Please verify the extracted times.`,
+          );
+        }
       }
-
-      setTimeout(
-        () => {
-          document
-            .getElementById(
-              'results'
-            )
-            ?.scrollIntoView({
-              behavior:
-                'smooth',
-            })
-        },
-        150
-      )
-    } catch (
-      error: any
-    ) {
+    } catch (error) {
       console.error(
-        error
-      )
-
-      setRows(
-        manualRows()
-      )
-
-      setMode(
-        'manual'
-      )
-
-      setSubmitted(
-        false
-      )
+        error,
+      );
 
       setMessage(
-        error?.message ||
-          'This timecard could not be processed automatically.'
-      )
+        error instanceof Error
+          ? error.message
+          : "Could not read the uploaded timecard.",
+      );
     } finally {
-      setReadingFile(
-        false
-      )
+      setUploading(
+        false,
+      );
 
       if (
-        fileRef.current
+        fileInputRef.current
       ) {
-        fileRef.current.value =
-          ''
+        fileInputRef.current.value =
+          "";
       }
     }
   }
 
-  /* ======================================================
-     CALCULATE MANUAL
-  ====================================================== */
 
-  function calculateManual() {
-    const completeRows =
-      rows.filter(
-        (
-          row
-        ) =>
-          row.clock_in.trim() &&
-          row.clock_out.trim()
-      )
-
-    if (
-      !completeRows.length
-    ) {
-      setMessage(
-        'Please enter at least one complete work shift.'
-      )
-
-      return
-    }
-
-    const invalid =
-      completeRows.find(
-        (
-          row
-        ) =>
-          !isPlausibleShift(
-            row.clock_in,
-            row.clock_out
-          )
-      )
-
-    if (
-      invalid
-    ) {
-      setMessage(
-        `Please check ${invalid.label}. The start and end times do not form a valid shift.`
-      )
-
-      return
-    }
-
-    setMessage(
-      ''
-    )
-
-    setSubmitted(
-      true
-    )
-  }
-
-  /* ======================================================
-     RESET
-  ====================================================== */
-
-  function reset() {
+  function resetCalculator() {
     setRows(
-      manualRows()
-    )
+      createEmptyWeek(),
+    );
 
-    setMode(
-      'manual'
-    )
-
-    setSubmitted(
-      false
-    )
+    setUploadedFile("");
+    setOcrText("");
 
     setMessage(
-      ''
-    )
-
-    setEmployeeName(
-      ''
-    )
-
-    setEmployeeId(
-      ''
-    )
-
-    setManager(
-      ''
-    )
-
-    setDepartment(
-      ''
-    )
-
-    setHourlyRate(
-      ''
-    )
-
-    setCurrency(
-      '$'
-    )
-
-    setStandardWeeklyHours(
-      '40'
-    )
-
-    setStandardDailyHours(
-      '8'
-    )
-
-    setOvertimeRule(
-      'none'
-    )
-
-    setOvertimeMultiplier(
-      '1.5'
-    )
-
-    setWeekStartDate(
-      ''
-    )
-
-    setWeekEndDate(
-      ''
-    )
-
-    setPayPeriod(
-      'weekly'
-    )
-
-    setNotes(
-      ''
-    )
-
-    if (
-      fileRef.current
-    ) {
-      fileRef.current.value =
-        ''
-    }
+      "Upload a timecard or enter hours manually.",
+    );
   }
+
 
   return (
-    <main className="pageShell">
+    <main className="page-shell">
+      <section className="hero">
+        <div className="hero-inner">
+          <p className="eyebrow">
+            TIMECARD CALCULATOR
+          </p>
 
-      {/* HERO */}
+          <h1>
+            Calculate Work Hours
+            Automatically
+          </h1>
 
-      <section className="pageHero">
+          <p className="hero-copy">
+            Upload a PDF,
+            scanned timecard,
+            screenshot, or photo.
+            The calculator will
+            read the work times
+            and calculate the
+            weekly total.
+          </p>
 
-        <div className="heroBadge">
-          FREE WORK HOURS CALCULATOR
+          <div className="hero-actions">
+            <label
+              className={`primary-button ${
+                uploading
+                  ? "button-disabled"
+                  : ""
+              }`}
+            >
+              {uploading
+                ? "Reading Timecard..."
+                : "Upload Timecard"}
+
+              <input
+                ref={
+                  fileInputRef
+                }
+                type="file"
+                hidden
+                disabled={
+                  uploading
+                }
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff"
+                onChange={
+                  handleFile
+                }
+              />
+            </label>
+
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                resetCalculator();
+
+                setMessage(
+                  "Manual entry mode. Enter clock-in and clock-out times below.",
+                );
+              }}
+            >
+              Enter Hours Manually
+            </button>
+          </div>
+
+          {uploadedFile && (
+            <p className="uploaded-file">
+              File:{" "}
+              {uploadedFile}
+            </p>
+          )}
         </div>
-
-        <h1>
-          Time Card Calculator
-
-          <span>
-            Calculate Work Hours Accurately
-          </span>
-        </h1>
-
-        <p>
-          Upload a PDF, scanned timecard,
-          screenshot, or photo, or enter your
-          shifts manually. Uploaded documents are
-          prepared automatically before work-time
-          detection.
-        </p>
-
-        <div className="heroActions">
-
-          <button
-            className="primaryAction"
-            disabled={
-              readingFile
-            }
-            onClick={() =>
-              fileRef.current?.click()
-            }
-          >
-            {readingFile
-              ? 'Processing Timecard…'
-              : 'Upload Timecard'}
-          </button>
-
-          <button
-            className="secondaryAction"
-            disabled={
-              readingFile
-            }
-            onClick={
-              startManual
-            }
-          >
-            Enter Hours Manually
-          </button>
-
-          <input
-            ref={
-              fileRef
-            }
-            hidden
-            type="file"
-            accept=".pdf,.jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff"
-            onChange={(
-              event
-            ) =>
-              upload(
-                event.target.files?.[0]
-              )
-            }
-          />
-
-        </div>
-
       </section>
 
-      {/* CALCULATOR */}
 
-      <section
-        className="calculatorCard"
-        id="calculator"
-      >
-
-        <div className="calculatorCardHeader">
-
+      <section className="calculator-card">
+        <header className="calculator-header">
           <h2>
             Time Card Calculator
           </h2>
 
           <p>
-            Review automatically detected shifts
-            or enter start time, end time, and break
-            duration manually.
+            Review automatically
+            detected hours or
+            enter the work times
+            manually.
           </p>
+        </header>
 
+
+        <div className="status-message">
+          {message}
         </div>
 
-        {message && (
-          <div className="statusNotice">
-            {message}
-          </div>
-        )}
 
-        {/* TIME TABLE */}
-
-        <div className="timeTable">
-
-          <div className="timeTableHeader">
-
-            <div>
-              Day
-            </div>
-
-            <div>
-              Clock In
-            </div>
-
-            <div>
-              Clock Out
-            </div>
-
-            <div>
-              Break
-            </div>
-
-            <div>
-              Hours
-            </div>
-
+        <div className="time-table">
+          <div className="time-table-header">
+            <div>DAY</div>
+            <div>CLOCK IN</div>
+            <div>CLOCK OUT</div>
+            <div>BREAK</div>
+            <div>HOURS</div>
           </div>
 
-          {rows.map(
+
+          {calculatedRows.map(
             (
               row,
-              index
+              index,
             ) => (
               <div
-                className="timeTableRow"
+                className={`time-row ${
+                  row.needsReview
+                    ? "time-row-review"
+                    : ""
+                }`}
                 key={
-                  row.label
+                  row.day
                 }
               >
+                <div className="day-cell">
+                  <strong>
+                    {row.day}
+                  </strong>
 
-                <div className="shiftLabel">
-                  {row.label}
+                  {row.needsReview && (
+                    <span className="review-badge">
+                      Review
+                    </span>
+                  )}
                 </div>
 
-                <input
-                  className="universalTimeInput"
-                  value={
-                    row.clock_in
-                  }
-                  placeholder="HH:MM"
-                  onChange={(
-                    event
-                  ) =>
-                    updateRow(
-                      index,
-                      'clock_in',
-                      event.target.value
-                    )
-                  }
-                />
 
-                <input
-                  className="universalTimeInput"
-                  value={
-                    row.clock_out
-                  }
-                  placeholder="HH:MM"
-                  onChange={(
-                    event
-                  ) =>
-                    updateRow(
-                      index,
-                      'clock_out',
-                      event.target.value
-                    )
-                  }
-                />
-
-                <div className="breakField">
-
+                <div>
                   <input
-                    type="number"
-                    min="0"
-                    max="180"
+                    className="time-input"
+                    type="time"
                     value={
-                      row.break_minutes
+                      row.clockIn
                     }
                     onChange={(
-                      event
+                      event,
                     ) =>
                       updateRow(
                         index,
-                        'break_minutes',
-                        Number(
-                          event.target.value
-                        )
+                        "clockIn",
+                        event
+                          .target
+                          .value,
                       )
                     }
                   />
-
-                  <span>
-                    min
-                  </span>
-
                 </div>
 
-                <div className="dailyHours">
-                  {row.clock_in &&
-                  row.clock_out
-                    ? hoursMinutes(
-                        workedMinutes[
-                          index
-                        ]
+
+                <div>
+                  <input
+                    className="time-input"
+                    type="time"
+                    value={
+                      row.clockOut
+                    }
+                    onChange={(
+                      event,
+                    ) =>
+                      updateRow(
+                        index,
+                        "clockOut",
+                        event
+                          .target
+                          .value,
                       )
-                    : '—'}
+                    }
+                  />
                 </div>
 
-              </div>
-            )
-          )}
 
-        </div>
-
-        {/* EMPLOYEE DETAILS */}
-
-        <div className="employeeDetailsSection">
-
-          <div className="detailsSectionHeader">
-            <div>
-
-              <span className="detailsSectionLabel">
-                EMPLOYEE INFORMATION
-              </span>
-
-              <h3>
-                Employee Details
-              </h3>
-
-            </div>
-          </div>
-
-          <div className="employeeFields">
-
-            <label>
-              <span>
-                Employee Name
-              </span>
-
-              <input
-                type="text"
-                value={
-                  employeeName
-                }
-                placeholder="e.g. John Smith"
-                onChange={(
-                  event
-                ) =>
-                  setEmployeeName(
-                    event.target.value
-                  )
-                }
-              />
-            </label>
-
-            <label>
-              <span>
-                Employee ID
-              </span>
-
-              <input
-                type="text"
-                value={
-                  employeeId
-                }
-                placeholder="e.g. 3256"
-                onChange={(
-                  event
-                ) =>
-                  setEmployeeId(
-                    event.target.value
-                  )
-                }
-              />
-            </label>
-
-            <label>
-              <span>
-                Manager
-              </span>
-
-              <input
-                type="text"
-                value={
-                  manager
-                }
-                placeholder="e.g. Jane Smith"
-                onChange={(
-                  event
-                ) =>
-                  setManager(
-                    event.target.value
-                  )
-                }
-              />
-            </label>
-
-            <label>
-              <span>
-                Department
-              </span>
-
-              <input
-                type="text"
-                value={
-                  department
-                }
-                placeholder="e.g. Engineering"
-                onChange={(
-                  event
-                ) =>
-                  setDepartment(
-                    event.target.value
-                  )
-                }
-              />
-            </label>
-
-          </div>
-
-          {/* PAY */}
-
-          <div className="detailsSubSection">
-
-            <div className="detailsSectionHeader">
-              <div>
-
-                <span className="detailsSectionLabel">
-                  PAY & OVERTIME
-                </span>
-
-                <h3>
-                  Pay Configuration
-                </h3>
-
-              </div>
-            </div>
-
-            <div className="payConfigurationGrid">
-
-              <label>
-                <span>
-                  Hourly Rate
-                </span>
-
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={
-                    hourlyRate
-                  }
-                  placeholder="50.00"
-                  onChange={(
-                    event
-                  ) =>
-                    setHourlyRate(
-                      event.target.value
-                    )
-                  }
-                />
-              </label>
-
-              <label>
-                <span>
-                  Currency
-                </span>
-
-                <select
-                  value={
-                    currency
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    setCurrency(
-                      event.target.value
-                    )
-                  }
-                >
-                  <option value="$">
-                    $ USD
-                  </option>
-
-                  <option value="€">
-                    € EUR
-                  </option>
-
-                  <option value="£">
-                    £ GBP
-                  </option>
-
-                  <option value="C$">
-                    C$ CAD
-                  </option>
-
-                  <option value="A$">
-                    A$ AUD
-                  </option>
-                </select>
-              </label>
-
-              <label>
-                <span>
-                  Standard Weekly Hours
-                </span>
-
-                <input
-                  type="number"
-                  min="0"
-                  step="0.25"
-                  value={
-                    standardWeeklyHours
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    setStandardWeeklyHours(
-                      event.target.value
-                    )
-                  }
-                />
-              </label>
-
-              <label>
-                <span>
-                  Standard Daily Hours
-                </span>
-
-                <input
-                  type="number"
-                  min="0"
-                  step="0.25"
-                  value={
-                    standardDailyHours
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    setStandardDailyHours(
-                      event.target.value
-                    )
-                  }
-                />
-              </label>
-
-              <label>
-                <span>
-                  Overtime Rule
-                </span>
-
-                <select
-                  value={
-                    overtimeRule
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    setOvertimeRule(
-                      event.target.value as
-                        | 'none'
-                        | 'weekly'
-                        | 'daily'
-                    )
-                  }
-                >
-                  <option value="none">
-                    No Overtime
-                  </option>
-
-                  <option value="weekly">
-                    Weekly Overtime
-                  </option>
-
-                  <option value="daily">
-                    Daily Overtime
-                  </option>
-                </select>
-              </label>
-
-              <label>
-                <span>
-                  Overtime Multiplier
-                </span>
-
-                <input
-                  type="number"
-                  min="1"
-                  step="0.1"
-                  value={
-                    overtimeMultiplier
-                  }
-                  disabled={
-                    overtimeRule ===
-                    'none'
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    setOvertimeMultiplier(
-                      event.target.value
-                    )
-                  }
-                />
-              </label>
-
-            </div>
-
-          </div>
-
-          {/* PAY PERIOD */}
-
-          <div className="detailsSubSection">
-
-            <div className="detailsSectionHeader">
-              <div>
-
-                <span className="detailsSectionLabel">
-                  PAY PERIOD
-                </span>
-
-                <h3>
-                  Period Details
-                </h3>
-
-              </div>
-            </div>
-
-            <div className="payPeriodGrid">
-
-              <label>
-                <span>
-                  Week Start Date
-                </span>
-
-                <input
-                  type="date"
-                  value={
-                    weekStartDate
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    setWeekStartDate(
-                      event.target.value
-                    )
-                  }
-                />
-              </label>
-
-              <label>
-                <span>
-                  Week End Date
-                </span>
-
-                <input
-                  type="date"
-                  value={
-                    weekEndDate
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    setWeekEndDate(
-                      event.target.value
-                    )
-                  }
-                />
-              </label>
-
-              <label>
-                <span>
-                  Pay Period
-                </span>
-
-                <select
-                  value={
-                    payPeriod
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    setPayPeriod(
-                      event.target.value as
-                        | 'weekly'
-                        | 'biweekly'
-                        | 'semimonthly'
-                    )
-                  }
-                >
-                  <option value="weekly">
-                    Weekly
-                  </option>
-
-                  <option value="biweekly">
-                    Biweekly
-                  </option>
-
-                  <option value="semimonthly">
-                    Semi-monthly
-                  </option>
-                </select>
-              </label>
-
-            </div>
-
-          </div>
-
-          {/* NOTES */}
-
-          <div className="detailsSubSection">
-
-            <label className="notesField">
-
-              <span>
-                Notes
-              </span>
-
-              <textarea
-                rows={4}
-                value={
-                  notes
-                }
-                placeholder="Optional payroll notes, corrections, PTO, holiday, training, or other comments."
-                onChange={(
-                  event
-                ) =>
-                  setNotes(
-                    event.target.value
-                  )
-                }
-              />
-
-            </label>
-
-          </div>
-
-        </div>
-
-        {/* ACTIONS */}
-
-        <div className="calculatorActions">
-
-          {mode ===
-            'manual' && (
-            <button
-              className="calculateButton"
-              onClick={
-                calculateManual
-              }
-            >
-              Calculate Hours
-            </button>
-          )}
-
-          <button
-            className="resetButton"
-            onClick={
-              reset
-            }
-          >
-            Reset
-          </button>
-
-        </div>
-
-      </section>
-
-      {/* RESULTS */}
-
-      {submitted && (
-        <section
-          className="resultsCard"
-          id="results"
-        >
-
-          <div className="resultsHeading">
-
-            <div>
-
-              <span>
-                WORK HOURS SUMMARY
-              </span>
-
-              <h2>
-                Calculated Results
-              </h2>
-
-            </div>
-
-            <div className="totalHoursBox">
-
-              <small>
-                Total Hours
-              </small>
-
-              <strong>
-                {hoursMinutes(
-                  totalMinutes
-                )}
-              </strong>
-
-              <span>
-                {decimalHours(
-                  totalMinutes
-                )}{' '}
-                decimal hours
-              </span>
-
-            </div>
-
-          </div>
-
-          <div className="summaryTable">
-
-            <div className="summaryHeader">
-
-              <div>
-                Day
-              </div>
-
-              <div>
-                Work Period
-              </div>
-
-              <div>
-                Break
-              </div>
-
-              <div>
-                Hours
-              </div>
-
-            </div>
-
-            {rows.map(
-              (
-                row,
-                index
-              ) => {
-                if (
-                  !row.clock_in ||
-                  !row.clock_out
-                ) {
-                  return null
-                }
-
-                return (
-                  <div
-                    className="summaryRow"
-                    key={`summary-${row.label}`}
-                  >
-
-                    <div>
+                <div>
+                  <div className="break-field">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={
+                        row.breakMinutes
+                      }
+                      onChange={(
+                        event,
+                      ) =>
+                        updateRow(
+                          index,
+                          "breakMinutes",
+                          event
+                            .target
+                            .value,
+                        )
+                      }
+                    />
+
+                    <span>
+                      min
+                    </span>
+                  </div>
+                </div>
+
+
+                <div className="hours-cell">
+                  {row.minutes >
+                  0 ? (
+                    <>
                       <strong>
-                        {row.label}
-                      </strong>
-                    </div>
-
-                    <div>
-                      {row.clock_in}
-                      {' → '}
-                      {row.clock_out}
-                    </div>
-
-                    <div>
-                      {row.break_minutes
-                        ? `${row.break_minutes} min`
-                        : '—'}
-                    </div>
-
-                    <div className="summaryHours">
-
-                      <strong>
-                        {hoursMinutes(
-                          workedMinutes[
-                            index
-                          ]
+                        {formatMinutes(
+                          row.minutes,
                         )}
                       </strong>
 
                       <small>
-                        {decimalHours(
-                          workedMinutes[
-                            index
-                          ]
-                        )}{' '}
+                        {
+                          row.decimalHours
+                        }{" "}
                         decimal
                       </small>
+                    </>
+                  ) : (
+                    <span className="empty-hours">
+                      —
+                    </span>
+                  )}
+                </div>
+              </div>
+            ),
+          )}
+        </div>
 
-                    </div>
 
+        <div className="calculator-actions">
+          <button
+            type="button"
+            className="reset-button"
+            onClick={
+              resetCalculator
+            }
+          >
+            Reset
+          </button>
+        </div>
+      </section>
+
+
+      <section className="results-card">
+        <div className="results-top">
+          <div>
+            <p className="eyebrow">
+              WORK HOURS SUMMARY
+            </p>
+
+            <h2>
+              Calculated Results
+            </h2>
+          </div>
+
+          <div className="total-hours-card">
+            <span>
+              TOTAL HOURS
+            </span>
+
+            <strong>
+              {formatMinutes(
+                totalMinutes,
+              )}
+            </strong>
+
+            <small>
+              {formatDecimal(
+                totalMinutes,
+              )}{" "}
+              decimal hours
+            </small>
+          </div>
+        </div>
+
+
+        <div className="results-table">
+          <div className="results-header">
+            <div>DAY</div>
+            <div>WORK PERIOD</div>
+            <div>BREAK</div>
+            <div>HOURS</div>
+          </div>
+
+
+          {calculatedRows
+            .filter(
+              (row) =>
+                row.clockIn &&
+                row.clockOut,
+            )
+            .map(
+              (row) => (
+                <div
+                  className="result-row"
+                  key={
+                    `result-${row.day}`
+                  }
+                >
+                  <div>
+                    <strong>
+                      {row.day}
+                    </strong>
                   </div>
-                )
-              }
+
+                  <div>
+                    {
+                      row.clockIn
+                    }{" "}
+                    →{" "}
+                    {
+                      row.clockOut
+                    }
+                  </div>
+
+                  <div>
+                    {row.breakMinutes
+                      ? `${row.breakMinutes} min`
+                      : "—"}
+                  </div>
+
+                  <div className="result-hours">
+                    <strong>
+                      {formatMinutes(
+                        row.minutes,
+                      )}
+                    </strong>
+
+                    <small>
+                      {
+                        row.decimalHours
+                      }{" "}
+                      decimal
+                    </small>
+                  </div>
+                </div>
+              ),
             )}
 
-          </div>
 
-          <div className="resultsFooter">
-
-            <div>
-
-              <small>
-                Total Weekly Hours
-              </small>
-
-              <strong>
-                {hoursMinutes(
-                  totalMinutes
-                )}
-              </strong>
-
-              <span className="decimalTotal">
-                {decimalHours(
-                  totalMinutes
-                )}{' '}
-                decimal hours
-              </span>
-
+          {calculatedRows.filter(
+            (row) =>
+              row.clockIn &&
+              row.clockOut,
+          ).length ===
+            0 && (
+            <div className="no-results">
+              No work hours
+              entered yet.
             </div>
+          )}
+        </div>
 
-            <button
-              onClick={() =>
-                window.print()
-              }
-            >
-              Print Summary
-            </button>
 
+        <div className="weekly-total">
+          <div>
+            <span>
+              TOTAL WEEKLY HOURS
+            </span>
+
+            <strong>
+              {formatMinutes(
+                totalMinutes,
+              )}
+            </strong>
           </div>
 
-        </section>
-      )}
+          <div>
+            <span>
+              DECIMAL HOURS
+            </span>
 
+            <strong>
+              {formatDecimal(
+                totalMinutes,
+              )}
+            </strong>
+          </div>
+        </div>
+      </section>
+
+
+      {process.env.NODE_ENV ===
+        "development" &&
+        ocrText && (
+          <details className="debug-card">
+            <summary>
+              OCR Debug Text
+            </summary>
+
+            <pre>
+              {ocrText}
+            </pre>
+          </details>
+        )}
     </main>
-  )
+  );
 }
