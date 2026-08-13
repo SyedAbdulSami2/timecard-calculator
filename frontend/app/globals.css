@@ -32,9 +32,14 @@
   --danger: #b94b4b;
   --danger-bg: #fff1f1;
 
-  --shadow-sm: 0 4px 16px rgba(16, 42, 42, 0.05);
-  --shadow-md: 0 12px 35px rgba(16, 42, 42, 0.08);
-  --shadow-lg: 0 22px 60px rgba(16, 42, 42, 0.12);
+  --shadow-sm:
+    0 4px 16px rgba(16, 42, 42, 0.05);
+
+  --shadow-md:
+    0 12px 35px rgba(16, 42, 42, 0.08);
+
+  --shadow-lg:
+    0 22px 60px rgba(16, 42, 42, 0.12);
 
   --radius-sm: 10px;
   --radius-md: 16px;
@@ -81,6 +86,7 @@ body {
     sans-serif;
 
   line-height: 1.5;
+
   -webkit-font-smoothing: antialiased;
 }
 
@@ -111,7 +117,9 @@ button:disabled {
 
 .pageShell {
   width: min(1320px, calc(100% - 40px));
+
   margin: 0 auto;
+
   padding: 32px 0 60px;
 }
 
@@ -121,6 +129,7 @@ button:disabled {
 
 .pageHero {
   padding: 60px 20px 54px;
+
   text-align: center;
 }
 
@@ -130,15 +139,18 @@ button:disabled {
   justify-content: center;
 
   min-height: 44px;
+
   padding: 0 20px;
 
   border-radius: 999px;
 
   background: var(--primary-light);
+
   color: var(--primary);
 
   font-size: 12px;
   font-weight: 800;
+
   letter-spacing: 0.12em;
 
   box-shadow: var(--shadow-sm);
@@ -154,15 +166,18 @@ button:disabled {
   color: var(--text);
 
   font-family: "Manrope", sans-serif;
+
   font-size: clamp(42px, 5vw, 72px);
   font-weight: 800;
 
   line-height: 0.98;
+
   letter-spacing: -0.055em;
 }
 
 .pageHero h1 span {
   margin-top: 8px;
+
   color: var(--primary);
 }
 
@@ -211,7 +226,9 @@ button:disabled {
 
 .primaryAction {
   border: 1px solid transparent;
+
   background: var(--primary);
+
   color: white;
 
   box-shadow:
@@ -220,6 +237,7 @@ button:disabled {
 
 .primaryAction:hover:not(:disabled) {
   transform: translateY(-2px);
+
   background: var(--primary-dark);
 
   box-shadow:
@@ -228,13 +246,17 @@ button:disabled {
 
 .secondaryAction {
   border: 1px solid var(--border-strong);
+
   background: white;
+
   color: var(--text);
 }
 
 .secondaryAction:hover:not(:disabled) {
   transform: translateY(-2px);
+
   background: var(--surface-soft);
+
   border-color: #9ec6bc;
 }
 
@@ -246,6 +268,7 @@ button:disabled {
   overflow: hidden;
 
   border: 1px solid var(--border);
+
   border-radius: 26px;
 
   background: var(--surface);
@@ -272,6 +295,7 @@ button:disabled {
   color: white;
 
   font-family: "Manrope", sans-serif;
+
   font-size: 30px;
   font-weight: 800;
 
@@ -292,12 +316,15 @@ button:disabled {
 
 .statusNotice {
   margin: 20px 30px 0;
+
   padding: 14px 16px;
 
   border: 1px solid #ecd6a3;
+
   border-radius: 12px;
 
   background: var(--warning-bg);
+
   color: #7b5716;
 
   font-size: 13px;
@@ -310,6 +337,7 @@ button:disabled {
 
 .timeTable {
   width: 100%;
+
   margin-top: 20px;
 }
 
@@ -322,9 +350,10 @@ button:disabled {
     minmax(180px, 1.4fr)
     minmax(180px, 1.4fr)
     minmax(140px, 1fr)
-    minmax(90px, 0.7fr);
+    minmax(100px, 0.75fr);
 
   align-items: center;
+
   column-gap: 22px;
 
   padding: 0 30px;
@@ -344,6 +373,7 @@ button:disabled {
   font-weight: 800;
 
   text-transform: uppercase;
+
   letter-spacing: 0.08em;
 }
 
@@ -366,17 +396,24 @@ button:disabled {
   font-weight: 700;
 }
 
+/* ==========================================================
+   TIME INPUTS
+========================================================== */
+
 .universalTimeInput,
 .breakField input {
   width: 100%;
+
   height: 56px;
 
   padding: 0 18px;
 
   border: 1px solid var(--border-strong);
+
   border-radius: 12px;
 
   background: white;
+
   color: var(--text);
 
   outline: none;
@@ -402,6 +439,7 @@ button:disabled {
 .universalTimeInput:focus,
 .breakField input:focus {
   border-color: var(--primary);
+
   background: #fcfffe;
 
   box-shadow:
@@ -432,15 +470,48 @@ button:disabled {
   pointer-events: none;
 }
 
+/* ==========================================================
+   DAILY HOURS
+========================================================== */
+
 .dailyHours {
+  display: flex;
+  flex-direction: column;
+
+  align-items: flex-end;
+  justify-content: center;
+
+  min-width: 90px;
+
+  color: var(--primary);
+
+  text-align: right;
+}
+
+.dailyHours strong {
+  display: block;
+
   color: var(--primary);
 
   font-family: "Manrope", sans-serif;
 
-  font-size: 19px;
+  font-size: 18px;
   font-weight: 800;
 
-  text-align: right;
+  line-height: 1.15;
+}
+
+.dailyHours small {
+  display: block;
+
+  margin-top: 4px;
+
+  color: var(--text-muted);
+
+  font-size: 10px;
+  font-weight: 600;
+
+  white-space: nowrap;
 }
 
 /* ==========================================================
@@ -498,6 +569,7 @@ button:disabled {
 
 .detailsSubSection {
   margin-top: 32px;
+
   padding-top: 30px;
 
   border-top: 1px solid var(--border);
@@ -575,6 +647,7 @@ button:disabled {
   width: 100%;
 
   border: 1px solid var(--border-strong);
+
   border-radius: 12px;
 
   outline: none;
@@ -694,13 +767,17 @@ button:disabled {
   color: var(--text);
 }
 
-.payPeriodGrid input[type="date"]::-webkit-calendar-picker-indicator {
+.payPeriodGrid
+  input[type="date"]
+ ::-webkit-calendar-picker-indicator {
   cursor: pointer;
 
   opacity: 0.65;
 }
 
-.payPeriodGrid input[type="date"]::-webkit-calendar-picker-indicator:hover {
+.payPeriodGrid
+  input[type="date"]
+  ::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
 }
 
@@ -798,9 +875,11 @@ button:disabled {
 
 .resultsCard {
   margin-top: 28px;
+
   padding: 34px;
 
   border: 1px solid var(--border);
+
   border-radius: 24px;
 
   background: white;
@@ -845,12 +924,17 @@ button:disabled {
   letter-spacing: -0.03em;
 }
 
+/* ==========================================================
+   TOTAL HOURS BOX
+========================================================== */
+
 .totalHoursBox {
-  min-width: 190px;
+  min-width: 210px;
 
   padding: 18px 20px;
 
   border: 1px solid #cbe7df;
+
   border-radius: 16px;
 
   background:
@@ -877,7 +961,7 @@ button:disabled {
 .totalHoursBox strong {
   display: block;
 
-  margin-top: 3px;
+  margin-top: 4px;
 
   color: var(--primary-dark);
 
@@ -891,11 +975,12 @@ button:disabled {
 .totalHoursBox span {
   display: block;
 
-  margin-top: 5px;
+  margin-top: 7px;
 
   color: var(--text-soft);
 
   font-size: 11px;
+  font-weight: 600;
 }
 
 /* ==========================================================
@@ -906,6 +991,7 @@ button:disabled {
   overflow: hidden;
 
   border: 1px solid var(--border);
+
   border-radius: 15px;
 }
 
@@ -942,7 +1028,7 @@ button:disabled {
 }
 
 .summaryRow {
-  min-height: 72px;
+  min-height: 76px;
 
   border-top: 1px solid #e8f0ee;
 
@@ -957,9 +1043,17 @@ button:disabled {
   font-weight: 700;
 }
 
+/* ==========================================================
+   SUMMARY HOURS
+========================================================== */
+
 .summaryHours {
   display: flex;
   flex-direction: column;
+
+  align-items: flex-start;
+
+  justify-content: center;
 }
 
 .summaryHours strong {
@@ -968,14 +1062,20 @@ button:disabled {
   font-family: "Manrope", sans-serif;
 
   font-size: 17px;
+  font-weight: 800;
+
+  line-height: 1.15;
 }
 
 .summaryHours small {
-  margin-top: 2px;
+  margin-top: 4px;
 
   color: var(--text-muted);
 
   font-size: 10px;
+  font-weight: 600;
+
+  white-space: nowrap;
 }
 
 /* ==========================================================
@@ -990,6 +1090,7 @@ button:disabled {
   gap: 20px;
 
   margin-top: 18px;
+
   padding: 22px 24px;
 
   border-radius: 16px;
@@ -1026,7 +1127,19 @@ button:disabled {
 
   font-family: "Manrope", sans-serif;
 
-  font-size: 18px;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.decimalTotal {
+  display: block;
+
+  margin-top: 5px;
+
+  color: rgba(255, 255, 255, 0.68);
+
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .resultsFooter button {
@@ -1035,6 +1148,7 @@ button:disabled {
   padding: 0 22px;
 
   border: 0;
+
   border-radius: 11px;
 
   background: var(--primary);
@@ -1046,10 +1160,20 @@ button:disabled {
 
   box-shadow:
     0 7px 18px rgba(11, 141, 126, 0.22);
+
+  transition:
+    transform 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .resultsFooter button:hover {
+  transform: translateY(-2px);
+
   background: var(--accent);
+
+  box-shadow:
+    0 10px 22px rgba(11, 141, 126, 0.26);
 }
 
 /* ==========================================================
@@ -1065,6 +1189,7 @@ input[type="number"]::-webkit-outer-spin-button {
 
 input[type="number"] {
   appearance: textfield;
+
   -moz-appearance: textfield;
 }
 
@@ -1077,6 +1202,7 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
   outline: 3px solid rgba(11, 141, 126, 0.2);
+
   outline-offset: 2px;
 }
 
@@ -1086,7 +1212,10 @@ textarea:focus-visible {
 
 @media (max-width: 1050px) {
   .pageShell {
-    width: min(100% - 28px, 900px);
+    width: min(
+      100% - 28px,
+      900px
+    );
   }
 
   .timeTable {
@@ -1100,17 +1229,26 @@ textarea:focus-visible {
 
   .employeeFields {
     grid-template-columns:
-      repeat(2, minmax(0, 1fr));
+      repeat(
+        2,
+        minmax(0, 1fr)
+      );
   }
 
   .payConfigurationGrid {
     grid-template-columns:
-      repeat(2, minmax(0, 1fr));
+      repeat(
+        2,
+        minmax(0, 1fr)
+      );
   }
 
   .payPeriodGrid {
     grid-template-columns:
-      repeat(2, minmax(0, 1fr));
+      repeat(
+        2,
+        minmax(0, 1fr)
+      );
   }
 }
 
@@ -1126,7 +1264,10 @@ textarea:focus-visible {
   }
 
   .pageHero {
-    padding: 40px 10px 34px;
+    padding:
+      40px
+      10px
+      34px;
   }
 
   .pageHero h1 {
@@ -1186,6 +1327,7 @@ textarea:focus-visible {
 
   .detailsSubSection {
     margin-top: 24px;
+
     padding-top: 24px;
   }
 
@@ -1208,11 +1350,14 @@ textarea:focus-visible {
 
   .resultsHeading {
     flex-direction: column;
+
     align-items: stretch;
   }
 
   .totalHoursBox {
     width: 100%;
+
+    min-width: 0;
   }
 
   .summaryTable {
@@ -1226,6 +1371,7 @@ textarea:focus-visible {
 
   .resultsFooter {
     flex-direction: column;
+
     align-items: stretch;
   }
 
@@ -1262,6 +1408,10 @@ textarea:focus-visible {
   .resultsCard {
     padding: 16px;
   }
+
+  .totalHoursBox strong {
+    font-size: 28px;
+  }
 }
 
 /* ==========================================================
@@ -1277,6 +1427,7 @@ textarea:focus-visible {
     width: 100%;
 
     margin: 0;
+
     padding: 0;
   }
 
@@ -1304,7 +1455,8 @@ textarea:focus-visible {
   }
 
   .resultsFooter small,
-  .resultsFooter strong {
+  .resultsFooter strong,
+  .decimalTotal {
     color: #111;
   }
 
