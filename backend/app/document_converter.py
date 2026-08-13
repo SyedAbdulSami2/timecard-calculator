@@ -6,7 +6,12 @@ from pathlib import Path
 from typing import Any
 
 import fitz
-from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+from PIL import (
+    Image,
+    ImageEnhance,
+    ImageFilter,
+    ImageOps,
+)
 
 
 SUPPORTED = {
@@ -21,31 +26,46 @@ SUPPORTED = {
 }
 
 
-# Full page returned to frontend
-FULL_PAGE_MAX_WIDTH = 1400
+# ============================================================
+# IMAGE / OCR SETTINGS
+# ============================================================
 
-# OCR crop returned at higher resolution
-OCR_CROP_MAX_WIDTH = 2200
+# Smaller preview image returned to frontend.
+FULL_PAGE_MAX_WIDTH = 1600
 
-PDF_SCALE = 1.8
-JPEG_QUALITY = 78
+# High-resolution OCR image.
+OCR_MAX_WIDTH = 3200
+
+# Tighter timecard-table OCR image.
+TABLE_MAX_WIDTH = 3400
+
+# Roughly 300 DPI for common PDF pages.
+PDF_SCALE = 3.2
+
+# Preview can remain JPEG.
+PREVIEW_JPEG_QUALITY = 82
 
 
 # ============================================================
 # ENCODING
 # ============================================================
 
-def _encode_image(
+def _encode_jpeg(
     image: Image.Image,
-    quality: int = JPEG_QUALITY,
+    quality: int = PREVIEW_JPEG_QUALITY,
 ) -> str:
+    """
+    Encode normal preview image as JPEG.
+    """
+
     buffer = io.BytesIO()
 
-    image.save(
+    image.convert("RGB").save(
         buffer,
         format="JPEG",
         quality=quality,
         optimize=True,
+        subsampling=0,
     )
 
     encoded = base64.b64encode(
@@ -58,8 +78,39 @@ def _encode_image(
     )
 
 
+def _encode_png(
+    image: Image.Image,
+) -> str:
+    """
+    OCR images are returned as PNG.
+
+    PNG avoids JPEG artifacts around:
+    - digits
+    - colons
+    - handwriting
+    - table borders
+    """
+
+    buffer = io.BytesIO()
+
+    image.save(
+        buffer,
+        format="PNG",
+        optimize=True,
+    )
+
+    encoded = base64.b64encode(
+        buffer.getvalue()
+    ).decode("ascii")
+
+    return (
+        "data:image/png;base64,"
+        + encoded
+    )
+
+
 # ============================================================
-# IMAGE RESIZE
+# RESIZE HELPERS
 # ============================================================
 
 def _resize_to_width(
@@ -72,11 +123,16 @@ def _resize_to_width(
         return image.copy()
 
     scale = (
-        max_width / width
+        max_width
+        / width
     )
 
-    new_height = round(
-        height * scale
+    new_height = max(
+        1,
+        round(
+            height
+            * scale
+        ),
     )
 
     return image.resize(
@@ -88,8 +144,50 @@ def _resize_to_width(
     )
 
 
+def _upscale_to_width(
+    image: Image.Image,
+    target_width: int,
+) -> Image.Image:
+    """
+    Unlike _resize_to_width(), this can enlarge
+    smaller scanned/photo documents for OCR.
+    """
+
+    width, height = image.size
+
+    if width <= 0:
+        return image.copy()
+
+    if width >= target_width:
+        return _resize_to_width(
+            image,
+            target_width,
+        )
+
+    scale = (
+        target_width
+        / width
+    )
+
+    new_height = max(
+        1,
+        round(
+            height
+            * scale
+        ),
+    )
+
+    return image.resize(
+        (
+            target_width,
+            new_height,
+        ),
+        Image.Resampling.LANCZOS,
+    )
+
+
 # ============================================================
-# FULL PAGE PREPARATION
+# FULL PAGE PREVIEW
 # ============================================================
 
 def _prepare_full_page(
@@ -99,7 +197,9 @@ def _prepare_full_page(
         image
     )
 
-    image = image.convert("RGB")
+    image = image.convert(
+        "RGB"
+    )
 
     image = _resize_to_width(
         image,
@@ -110,170 +210,280 @@ def _prepare_full_page(
 
 
 # ============================================================
-# OCR PREPROCESSING
+# OCR IMAGE PREPARATION
 # ============================================================
 
 def _prepare_ocr_image(
     image: Image.Image,
+    target_width: int = OCR_MAX_WIDTH,
 ) -> Image.Image:
     """
-    Prepare a section specifically for OCR.
+    Produce a high-resolution OCR image.
 
-    Improvements:
-    - grayscale
-    - enlarged
-    - stronger contrast
-    - sharpened
-    - mild denoise
+    Important:
+    - no hard black/white threshold
+    - no JPEG compression
+    - preserve thin digits and punctuation
+    - mild contrast only
     """
 
     image = ImageOps.exif_transpose(
         image
     )
 
-    image = image.convert("L")
-
-    image = _resize_to_width(
-        image,
-        OCR_CROP_MAX_WIDTH,
+    image = image.convert(
+        "L"
     )
 
-    # Increase contrast
-    image = ImageEnhance.Contrast(
-        image
-    ).enhance(1.8)
+    image = _upscale_to_width(
+        image,
+        target_width,
+    )
 
-    # Sharpen handwriting / printed table lines
-    image = ImageEnhance.Sharpness(
-        image
-    ).enhance(2.0)
-
-    # Small median filter reduces noise
+    # Mild denoise first.
     image = image.filter(
         ImageFilter.MedianFilter(
             size=3
         )
     )
 
-    return image.convert("RGB")
+    # Moderate contrast.
+    image = ImageEnhance.Contrast(
+        image
+    ).enhance(
+        1.35
+    )
+
+    # Moderate sharpening.
+    image = ImageEnhance.Sharpness(
+        image
+    ).enhance(
+        1.45
+    )
+
+    # Unsharp mask helps handwritten numbers
+    # without destroying punctuation.
+    image = image.filter(
+        ImageFilter.UnsharpMask(
+            radius=1.2,
+            percent=135,
+            threshold=3,
+        )
+    )
+
+    return image
 
 
 # ============================================================
-# OCR CROP
+# OCR FULL PAGE
+# ============================================================
+
+def _create_full_ocr_image(
+    image: Image.Image,
+) -> Image.Image:
+    """
+    OCR the full document.
+
+    Keeping the whole page is important because
+    employee/week/date information can appear above
+    the working-hours table.
+    """
+
+    return _prepare_ocr_image(
+        image,
+        target_width=OCR_MAX_WIDTH,
+    )
+
+
+# ============================================================
+# GENERAL TIMECARD CROP
 # ============================================================
 
 def _create_timecard_crop(
     image: Image.Image,
 ) -> Image.Image:
     """
-    Create a general-purpose crop for timecard tables.
+    Broad crop around the timecard's work-hour area.
 
-    Many timecards place:
-    - employee information near top
-    - regular hours table in middle
-    - signatures / callback sections below
-
-    The crop deliberately keeps a broad region rather than
-    assuming one exact template.
+    Deliberately conservative:
+    we keep more of the page than before so that
+    weekday/date labels are not accidentally removed.
     """
 
     width, height = image.size
 
-    # Remove top branding/header area.
-    top = int(
-        height * 0.18
-    )
-
-    # Keep most of the useful working-hours area,
-    # but remove bottom signatures/footer.
-    bottom = int(
-        height * 0.74
-    )
-
-    # Slight horizontal trim to remove page margins.
     left = int(
-        width * 0.015
+        width * 0.01
     )
 
     right = int(
-        width * 0.985
+        width * 0.99
     )
 
-    if bottom <= top:
-        return image.copy()
+    # Keep some header information.
+    top = int(
+        height * 0.08
+    )
 
-    cropped = image.crop(
-        (
-            left,
-            top,
-            right,
-            bottom,
+    # Remove only the lowest footer/signature area.
+    bottom = int(
+        height * 0.82
+    )
+
+    if (
+        right <= left
+        or bottom <= top
+    ):
+        cropped = image.copy()
+
+    else:
+        cropped = image.crop(
+            (
+                left,
+                top,
+                right,
+                bottom,
+            )
         )
-    )
 
     return _prepare_ocr_image(
-        cropped
+        cropped,
+        target_width=OCR_MAX_WIDTH,
     )
 
 
 # ============================================================
-# OPTIONAL SECOND CROP
+# TABLE-FOCUSED CROP
 # ============================================================
 
 def _create_center_table_crop(
     image: Image.Image,
 ) -> Image.Image:
     """
-    A tighter crop for table-heavy layouts.
+    Higher resolution crop focused on the main
+    regular-hours table.
 
-    The frontend can OCR both crops and combine the text.
+    This is useful for detecting:
+    - date
+    - clock in
+    - clock out
+    - break
+    - printed daily hours
     """
 
     width, height = image.size
 
     left = int(
-        width * 0.02
+        width * 0.005
     )
 
     right = int(
-        width * 0.98
+        width * 0.995
     )
 
     top = int(
-        height * 0.28
+        height * 0.16
     )
 
     bottom = int(
-        height * 0.62
+        height * 0.68
     )
 
-    if bottom <= top:
-        return image.copy()
+    if (
+        right <= left
+        or bottom <= top
+    ):
+        cropped = image.copy()
 
-    cropped = image.crop(
-        (
-            left,
-            top,
-            right,
-            bottom,
+    else:
+        cropped = image.crop(
+            (
+                left,
+                top,
+                right,
+                bottom,
+            )
         )
-    )
 
     return _prepare_ocr_image(
-        cropped
+        cropped,
+        target_width=TABLE_MAX_WIDTH,
     )
 
 
 # ============================================================
-# IMAGE FILE CONVERSION
+# OPTIONAL UPPER TABLE CROP
+# ============================================================
+
+def _create_upper_table_crop(
+    image: Image.Image,
+) -> Image.Image:
+    """
+    Additional crop that keeps the upper half of the
+    document.
+
+    Useful when the main regular-hours table begins
+    very high on the page.
+    """
+
+    width, height = image.size
+
+    left = int(
+        width * 0.005
+    )
+
+    right = int(
+        width * 0.995
+    )
+
+    top = int(
+        height * 0.05
+    )
+
+    bottom = int(
+        height * 0.55
+    )
+
+    if (
+        right <= left
+        or bottom <= top
+    ):
+        cropped = image.copy()
+
+    else:
+        cropped = image.crop(
+            (
+                left,
+                top,
+                right,
+                bottom,
+            )
+        )
+
+    return _prepare_ocr_image(
+        cropped,
+        target_width=TABLE_MAX_WIDTH,
+    )
+
+
+# ============================================================
+# IMAGE FILE LOADING
 # ============================================================
 
 def _load_image_pages(
     data: bytes,
 ) -> list[Image.Image]:
-    image = Image.open(
-        io.BytesIO(data)
-    )
+    try:
+        image = Image.open(
+            io.BytesIO(
+                data
+            )
+        )
+
+    except Exception as exc:
+        raise ValueError(
+            f"Could not open image: {exc}"
+        ) from exc
 
     pages: list[
         Image.Image
@@ -293,6 +503,7 @@ def _load_image_pages(
                 page
             )
 
+            # Preserve maximum source resolution.
             page = page.convert(
                 "RGB"
             )
@@ -310,7 +521,7 @@ def _load_image_pages(
 
 
 # ============================================================
-# PDF CONVERSION
+# PDF LOADING
 # ============================================================
 
 def _load_pdf_pages(
@@ -338,6 +549,7 @@ def _load_pdf_pages(
         Image.Image
     ] = []
 
+    # Much higher resolution than 1.8.
     matrix = fitz.Matrix(
         PDF_SCALE,
         PDF_SCALE,
@@ -354,6 +566,7 @@ def _load_pdf_pages(
             pixmap = page.get_pixmap(
                 matrix=matrix,
                 alpha=False,
+                colorspace=fitz.csRGB,
             )
 
             image = Image.frombytes(
@@ -369,8 +582,8 @@ def _load_pdf_pages(
                 image.copy()
             )
 
-            del pixmap
             del image
+            del pixmap
 
     finally:
         document.close()
@@ -423,13 +636,21 @@ def convert_document(
             "No document pages were produced."
         )
 
-    pages = []
+    pages: list[
+        dict[str, Any]
+    ] = []
 
     for index, source in enumerate(
         source_pages
     ):
         full_page = (
             _prepare_full_page(
+                source
+            )
+        )
+
+        full_ocr = (
+            _create_full_ocr_image(
                 source
             )
         )
@@ -446,37 +667,77 @@ def convert_document(
             )
         )
 
+        upper_table_crop = (
+            _create_upper_table_crop(
+                source
+            )
+        )
+
         pages.append(
             {
                 "page_number":
                     index + 1,
 
+                # Preview dimensions
                 "width":
                     full_page.width,
 
                 "height":
                     full_page.height,
 
-                # Full page for preview/fallback OCR
+                # Original source dimensions
+                "source_width":
+                    source.width,
+
+                "source_height":
+                    source.height,
+
+                # ------------------------------------
+                # Preview
+                # ------------------------------------
                 "image":
-                    _encode_image(
+                    _encode_jpeg(
                         full_page,
-                        quality=72,
+                        quality=82,
                     ),
 
-                # Preferred OCR source
+                # ------------------------------------
+                # Full high-resolution OCR image
+                # ------------------------------------
+                "full_ocr_image":
+                    _encode_png(
+                        full_ocr
+                    ),
+
+                # ------------------------------------
+                # Broad timecard OCR crop
+                # ------------------------------------
                 "ocr_image":
-                    _encode_image(
-                        ocr_crop,
-                        quality=84,
+                    _encode_png(
+                        ocr_crop
                     ),
 
-                # Tighter table-focused OCR source
+                # ------------------------------------
+                # Main regular-hours table crop
+                # ------------------------------------
                 "table_image":
-                    _encode_image(
-                        table_crop,
-                        quality=86,
+                    _encode_png(
+                        table_crop
                     ),
+
+                # ------------------------------------
+                # Additional upper table crop
+                # ------------------------------------
+                "upper_table_image":
+                    _encode_png(
+                        upper_table_crop
+                    ),
+
+                "full_ocr_width":
+                    full_ocr.width,
+
+                "full_ocr_height":
+                    full_ocr.height,
 
                 "ocr_width":
                     ocr_crop.width,
@@ -489,6 +750,12 @@ def convert_document(
 
                 "table_height":
                     table_crop.height,
+
+                "upper_table_width":
+                    upper_table_crop.width,
+
+                "upper_table_height":
+                    upper_table_crop.height,
             }
         )
 
@@ -497,7 +764,9 @@ def convert_document(
             filename,
 
         "page_count":
-            len(pages),
+            len(
+                pages
+            ),
 
         "pages":
             pages,
