@@ -26,13 +26,13 @@ const API = (
 ).replace(/\/+$/, '')
 
 const DAYS = [
+  'Sunday',
   'Monday',
   'Tuesday',
   'Wednesday',
   'Thursday',
   'Friday',
   'Saturday',
-  'Sunday',
 ]
 
 function manualRows(): DetectedShift[] {
@@ -136,7 +136,6 @@ function getShiftMinutes(
 
   let duration = end - start
 
-  // Overnight shift
   if (duration < 0) {
     duration += 24 * 60
   }
@@ -177,22 +176,10 @@ function isPlausibleShift(
   return true
 }
 
-/**
- * Payroll decimal hours.
- *
- * Example:
- * 12h 05m = 12.08
- */
 function decimalHours(minutes: number) {
   return (minutes / 60).toFixed(2)
 }
 
-/**
- * Standard HH:MM presentation.
- *
- * Example:
- * 725 minutes = 12:05
- */
 function hoursMinutes(minutes: number) {
   const hours = Math.floor(minutes / 60)
   const mins = minutes % 60
@@ -200,24 +187,91 @@ function hoursMinutes(minutes: number) {
   return `${hours}:${String(mins).padStart(2, '0')}`
 }
 
-function readableHours(minutes: number) {
-  const hours = Math.floor(minutes / 60)
-  const mins = minutes % 60
+/* ======================================================
+   DATE → WEEKDAY
+====================================================== */
 
-  if (hours === 0) {
-    return `${mins}m`
+function dateToWeekday(
+  dateText: string
+): string | null {
+  const match = dateText.match(
+    /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/
+  )
+
+  if (!match) {
+    return null
   }
 
-  if (mins === 0) {
-    return `${hours}h`
+  const month = Number(match[1])
+  const day = Number(match[2])
+
+  let year = Number(match[3])
+
+  if (year < 100) {
+    year += 2000
   }
 
-  return `${hours}h ${mins}m`
+  const date = new Date(
+    year,
+    month - 1,
+    day
+  )
+
+  if (Number.isNaN(date.getTime())) {
+    return null
+  }
+
+  const weekday =
+    date.toLocaleDateString(
+      'en-US',
+      {
+        weekday: 'long',
+      }
+    )
+
+  return DAYS.includes(weekday)
+    ? weekday
+    : null
 }
 
 /* ======================================================
-   OCR TEXT HELPERS
+   OCR HELPERS
 ====================================================== */
+
+function normalizeDay(value: string) {
+  const day =
+    value.toLowerCase()
+
+  if (day.startsWith('sun')) {
+    return 'Sunday'
+  }
+
+  if (day.startsWith('mon')) {
+    return 'Monday'
+  }
+
+  if (day.startsWith('tue')) {
+    return 'Tuesday'
+  }
+
+  if (day.startsWith('wed')) {
+    return 'Wednesday'
+  }
+
+  if (day.startsWith('thu')) {
+    return 'Thursday'
+  }
+
+  if (day.startsWith('fri')) {
+    return 'Friday'
+  }
+
+  if (day.startsWith('sat')) {
+    return 'Saturday'
+  }
+
+  return value
+}
 
 function findTimes(text: string) {
   const cleaned = text
@@ -232,21 +286,10 @@ function findTimes(text: string) {
 
   return matches
     .map(normalizeTime)
-    .filter((time) => parseTime(time) !== null)
-}
-
-function normalizeDay(value: string) {
-  const day = value.toLowerCase()
-
-  if (day.startsWith('mon')) return 'Monday'
-  if (day.startsWith('tue')) return 'Tuesday'
-  if (day.startsWith('wed')) return 'Wednesday'
-  if (day.startsWith('thu')) return 'Thursday'
-  if (day.startsWith('fri')) return 'Friday'
-  if (day.startsWith('sat')) return 'Saturday'
-  if (day.startsWith('sun')) return 'Sunday'
-
-  return value
+    .filter(
+      (time) =>
+        parseTime(time) !== null
+    )
 }
 
 function detectLabel(
@@ -254,31 +297,43 @@ function detectLabel(
   index: number
 ) {
   const dayMatch = text.match(
-    /\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Tues|Wed|Thu|Thur|Thurs|Fri|Sat|Sun)\b/i
+    /\b(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sun|Mon|Tue|Tues|Wed|Thu|Thur|Thurs|Fri|Sat)\b/i
   )
 
   if (dayMatch) {
-    return normalizeDay(dayMatch[1])
+    return normalizeDay(
+      dayMatch[1]
+    )
   }
 
   const dateMatch = text.match(
-    /\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b/
+    /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/
   )
 
   if (dateMatch) {
-    return dateMatch[0]
+    const weekday =
+      dateToWeekday(
+        dateMatch[0]
+      )
+
+    if (weekday) {
+      return weekday
+    }
   }
 
   return `Shift ${index + 1}`
 }
 
 function detectBreak(text: string) {
-  const minutePattern = text.match(
+  const minuteMatch = text.match(
     /(?:break|meal|lunch)[^0-9]{0,20}(\d{1,3})\s*(?:min|mins|minutes)?/i
   )
 
-  if (minutePattern) {
-    const value = Number(minutePattern[1])
+  if (minuteMatch) {
+    const value =
+      Number(
+        minuteMatch[1]
+      )
 
     if (
       !Number.isNaN(value) &&
@@ -289,15 +344,24 @@ function detectBreak(text: string) {
     }
   }
 
-  const durationPattern = text.match(
+  const timeMatch = text.match(
     /(\d{1,2})\s*:\s*(\d{2})\s*(?:break|meal|lunch)/i
   )
 
-  if (durationPattern) {
-    const hours = Number(durationPattern[1])
-    const minutes = Number(durationPattern[2])
+  if (timeMatch) {
+    const hours =
+      Number(
+        timeMatch[1]
+      )
 
-    const total = hours * 60 + minutes
+    const minutes =
+      Number(
+        timeMatch[2]
+      )
+
+    const total =
+      hours * 60 +
+      minutes
 
     if (
       total >= 0 &&
@@ -318,13 +382,17 @@ function detectPrintedHours(text: string) {
   ]
 
   for (const pattern of patterns) {
-    const match = text.match(pattern)
+    const match =
+      text.match(pattern)
 
     if (!match) {
       continue
     }
 
-    const value = Number(match[1])
+    const value =
+      Number(
+        match[1]
+      )
 
     if (
       !Number.isNaN(value) &&
@@ -359,11 +427,20 @@ function addCandidate(
     return
   }
 
+  const label =
+    detectLabel(
+      sourceText,
+      result.length
+    )
+
   const duplicate =
     result.some(
       (row) =>
-        row.clock_in === normalizedStart &&
-        row.clock_out === normalizedEnd
+        row.label === label &&
+        row.clock_in ===
+          normalizedStart &&
+        row.clock_out ===
+          normalizedEnd
     )
 
   if (duplicate) {
@@ -371,10 +448,14 @@ function addCandidate(
   }
 
   const breakMinutes =
-    detectBreak(sourceText)
+    detectBreak(
+      sourceText
+    )
 
   const printedHours =
-    detectPrintedHours(sourceText)
+    detectPrintedHours(
+      sourceText
+    )
 
   const calculatedHours =
     getShiftMinutes(
@@ -391,27 +472,61 @@ function addCandidate(
     ) > 0.25
 
   result.push({
-    label: detectLabel(
-      sourceText,
-      result.length
-    ),
-
+    label,
     clock_in:
       normalizedStart,
-
     clock_out:
       normalizedEnd,
-
     break_minutes:
       breakMinutes,
-
     printed_hours:
       printedHours,
-
     needs_review:
       needsReview,
   })
 }
+
+/* ======================================================
+   SUNDAY → SATURDAY WEEK
+====================================================== */
+
+function buildWeeklyRows(
+  detected: DetectedShift[]
+): DetectedShift[] {
+  const week =
+    manualRows()
+
+  for (
+    const row of detected
+  ) {
+    const weekday =
+      DAYS.find(
+        (day) =>
+          day.toLowerCase() ===
+          row.label.toLowerCase()
+      )
+
+    if (!weekday) {
+      continue
+    }
+
+    const index =
+      DAYS.indexOf(
+        weekday
+      )
+
+    week[index] = {
+      ...row,
+      label: weekday,
+    }
+  }
+
+  return week
+}
+
+/* ======================================================
+   UNIVERSAL PARSER
+====================================================== */
 
 function parseUniversalTimecard(
   text: string
@@ -422,24 +537,33 @@ function parseUniversalTimecard(
 
   const lines = cleaned
     .split('\n')
-    .map((line) => line.trim())
+    .map(
+      (line) =>
+        line.trim()
+    )
     .filter(Boolean)
 
   const detected:
     DetectedShift[] = []
 
-  /* PASS 1 — same line */
+  /* PASS 1 */
 
-  for (const line of lines) {
-    const times = findTimes(line)
+  for (
+    const line of lines
+  ) {
+    const times =
+      findTimes(line)
 
-    if (times.length < 2) {
+    if (
+      times.length < 2
+    ) {
       continue
     }
 
     for (
       let index = 0;
-      index + 1 < times.length;
+      index + 1 <
+      times.length;
       index += 2
     ) {
       addCandidate(
@@ -451,49 +575,75 @@ function parseUniversalTimecard(
     }
   }
 
-  /* PASS 2 — nearby OCR lines */
+  /* PASS 2 — ALWAYS RUN */
 
-  if (detected.length === 0) {
-    for (
-      let index = 0;
-      index < lines.length;
-      index++
+  for (
+    let index = 0;
+    index < lines.length;
+    index++
+  ) {
+    const block = lines
+      .slice(
+        index,
+        index + 6
+      )
+      .join(' ')
+
+    const hasDay =
+      /\b(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sun|Mon|Tue|Tues|Wed|Thu|Thur|Thurs|Fri|Sat)\b/i.test(
+        block
+      )
+
+    const hasDate =
+      /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/.test(
+        block
+      )
+
+    if (
+      !hasDay &&
+      !hasDate
     ) {
-      const block = lines
-        .slice(index, index + 5)
-        .join(' ')
+      continue
+    }
 
-      const times =
-        findTimes(block)
+    const times =
+      findTimes(block)
 
-      if (times.length < 2) {
-        continue
-      }
+    if (
+      times.length < 2
+    ) {
+      continue
+    }
 
-      for (
-        let timeIndex = 0;
-        timeIndex + 1 < times.length;
-        timeIndex += 2
-      ) {
-        addCandidate(
-          detected,
-          block,
-          times[timeIndex],
-          times[timeIndex + 1]
-        )
-      }
+    for (
+      let timeIndex = 0;
+      timeIndex + 1 <
+      times.length;
+      timeIndex += 2
+    ) {
+      addCandidate(
+        detected,
+        block,
+        times[timeIndex],
+        times[timeIndex + 1]
+      )
     }
   }
 
-  /* PASS 3 — fallback */
+  /* PASS 3 FALLBACK */
 
-  if (detected.length === 0) {
+  if (
+    detected.length === 0
+  ) {
     const allTimes =
-      findTimes(cleaned)
+      findTimes(
+        cleaned
+      )
 
     for (
       let index = 0;
-      index + 1 < allTimes.length;
+      index + 1 <
+      allTimes.length;
       index += 2
     ) {
       addCandidate(
@@ -505,15 +655,8 @@ function parseUniversalTimecard(
     }
   }
 
-  return detected.map(
-    (row, index) => ({
-      ...row,
-
-      label:
-        row.label.startsWith('Shift ')
-          ? `Shift ${index + 1}`
-          : row.label,
-    })
+  return buildWeeklyRows(
+    detected
   )
 }
 
@@ -560,7 +703,9 @@ async function convertUploadedDocument(
   }
 
   if (
-    !Array.isArray(data.pages) ||
+    !Array.isArray(
+      data.pages
+    ) ||
     data.pages.length === 0
   ) {
     throw new Error(
@@ -579,7 +724,9 @@ async function recognizeConvertedPage(
   imageUrl: string
 ) {
   const Tesseract =
-    await import('tesseract.js')
+    await import(
+      'tesseract.js'
+    )
 
   const result =
     await Tesseract.recognize(
@@ -597,7 +744,10 @@ async function recognizeConvertedPage(
       }
     )
 
-  return result.data.text || ''
+  return (
+    result.data.text ||
+    ''
+  )
 }
 
 async function readConvertedPages(
@@ -659,7 +809,8 @@ export default function Home() {
     setMode,
   ] =
     useState<
-      'manual' | 'upload'
+      'manual' |
+      'upload'
     >(
       'manual'
     )
@@ -683,11 +834,11 @@ export default function Home() {
     useState(false)
 
   const fileRef =
-    useRef<HTMLInputElement>(null)
+    useRef<HTMLInputElement>(
+      null
+    )
 
-  /* ======================================================
-     EMPLOYEE / PAY FIELDS
-  ====================================================== */
+  /* EMPLOYEE */
 
   const [
     employeeName,
@@ -708,6 +859,8 @@ export default function Home() {
     department,
     setDepartment,
   ] = useState('')
+
+  /* PAY */
 
   const [
     hourlyRate,
@@ -745,6 +898,8 @@ export default function Home() {
     overtimeMultiplier,
     setOvertimeMultiplier,
   ] = useState('1.5')
+
+  /* PAY PERIOD */
 
   const [
     weekStartDate,
@@ -806,6 +961,10 @@ export default function Home() {
       [workedMinutes]
     )
 
+  /* ======================================================
+     UPDATE ROW
+  ====================================================== */
+
   function updateRow(
     index: number,
     key:
@@ -829,8 +988,14 @@ export default function Home() {
         )
     )
 
-    setSubmitted(false)
+    setSubmitted(
+      false
+    )
   }
+
+  /* ======================================================
+     MANUAL
+  ====================================================== */
 
   function startManual() {
     setRows(
@@ -861,6 +1026,10 @@ export default function Home() {
       50
     )
   }
+
+  /* ======================================================
+     UPLOAD
+  ====================================================== */
 
   async function upload(
     file?: File
@@ -929,12 +1098,19 @@ export default function Home() {
         )
 
       console.log(
-        'DETECTED SHIFTS:',
+        'DETECTED WEEK:',
         detected
       )
 
+      const detectedCount =
+        detected.filter(
+          (row) =>
+            row.clock_in &&
+            row.clock_out
+        ).length
+
       if (
-        detected.length ===
+        detectedCount ===
         0
       ) {
         setRows(
@@ -963,6 +1139,8 @@ export default function Home() {
       const reviewCount =
         detected.filter(
           (row) =>
+            row.clock_in &&
+            row.clock_out &&
             row.needs_review
         ).length
 
@@ -971,27 +1149,13 @@ export default function Home() {
         0
       ) {
         setMessage(
-          `${detected.length} shift(s) detected. ${reviewCount} row(s) should be reviewed before using the final total.`
+          `${detectedCount} workday(s) detected. ${reviewCount} row(s) should be reviewed before using the final total.`
         )
       } else {
         setMessage(
-          `${detected.length} shift(s) detected. Please verify the extracted times.`
+          `${detectedCount} workday(s) detected. Please verify the extracted times.`
         )
       }
-
-      setTimeout(
-        () => {
-          document
-            .getElementById(
-              'results'
-            )
-            ?.scrollIntoView({
-              behavior:
-                'smooth',
-            })
-        },
-        150
-      )
     } catch (
       error: any
     ) {
@@ -1029,6 +1193,10 @@ export default function Home() {
     }
   }
 
+  /* ======================================================
+     CALCULATE MANUAL
+  ====================================================== */
+
   function calculateManual() {
     const completeRows =
       rows.filter(
@@ -1065,25 +1233,12 @@ export default function Home() {
     }
 
     setMessage('')
-
-    setSubmitted(
-      true
-    )
-
-    setTimeout(
-      () => {
-        document
-          .getElementById(
-            'results'
-          )
-          ?.scrollIntoView({
-            behavior:
-              'smooth',
-          })
-      },
-      50
-    )
+    setSubmitted(true)
   }
+
+  /* ======================================================
+     RESET
+  ====================================================== */
 
   function reset() {
     setRows(
@@ -1144,9 +1299,7 @@ export default function Home() {
   return (
     <main className="pageShell">
 
-      {/* ==================================================
-          HERO
-      ================================================== */}
+      {/* HERO */}
 
       <section className="pageHero">
 
@@ -1213,11 +1366,10 @@ export default function Home() {
           />
 
         </div>
+
       </section>
 
-      {/* ==================================================
-          CALCULATOR
-      ================================================== */}
+      {/* CALCULATOR */}
 
       <section
         className="calculatorCard"
@@ -1250,7 +1402,7 @@ export default function Home() {
 
           <div className="timeTableHeader">
             <div>
-              Day / Shift
+              Day
             </div>
 
             <div>
@@ -1277,26 +1429,13 @@ export default function Home() {
             ) => (
               <div
                 className="timeTableRow"
-                key={`${row.label}-${index}`}
+                key={
+                  row.label
+                }
               >
 
                 <div className="shiftLabel">
                   {row.label}
-
-                  {row.needs_review && (
-                    <small
-                      style={{
-                        display:
-                          'block',
-                        color:
-                          '#9a6818',
-                        marginTop:
-                          3,
-                      }}
-                    >
-                      Review
-                    </small>
-                  )}
                 </div>
 
                 <input
@@ -1304,7 +1443,7 @@ export default function Home() {
                   value={
                     row.clock_in
                   }
-                  placeholder="06:48"
+                  placeholder="HH:MM"
                   onChange={(
                     event
                   ) =>
@@ -1321,7 +1460,7 @@ export default function Home() {
                   value={
                     row.clock_out
                   }
-                  placeholder="19:31"
+                  placeholder="HH:MM"
                   onChange={(
                     event
                   ) =>
@@ -1362,31 +1501,14 @@ export default function Home() {
                 </div>
 
                 <div className="dailyHours">
-
                   {row.clock_in &&
-                  row.clock_out ? (
-                    <>
-                      <strong>
-                        {hoursMinutes(
-                          workedMinutes[
-                            index
-                          ]
-                        )}
-                      </strong>
-
-                      <small>
-                        {decimalHours(
-                          workedMinutes[
-                            index
-                          ]
-                        )}{' '}
-                        decimal
-                      </small>
-                    </>
-                  ) : (
-                    '—'
-                  )}
-
+                  row.clock_out
+                    ? hoursMinutes(
+                        workedMinutes[
+                          index
+                        ]
+                      )
+                    : '—'}
                 </div>
 
               </div>
@@ -1395,9 +1517,7 @@ export default function Home() {
 
         </div>
 
-        {/* ==================================================
-            EMPLOYEE INFO
-        ================================================== */}
+        {/* EMPLOYEE DETAILS */}
 
         <div className="employeeDetailsSection">
 
@@ -1503,7 +1623,7 @@ export default function Home() {
 
           </div>
 
-          {/* PAY CONFIGURATION */}
+          {/* PAY */}
 
           <div className="detailsSubSection">
 
@@ -1690,6 +1810,7 @@ export default function Home() {
               </label>
 
             </div>
+
           </div>
 
           {/* PAY PERIOD */}
@@ -1787,6 +1908,7 @@ export default function Home() {
               </label>
 
             </div>
+
           </div>
 
           {/* NOTES */}
@@ -1803,8 +1925,8 @@ export default function Home() {
                 value={
                   notes
                 }
-                placeholder="Optional notes, corrections, holiday information, PTO, training, or other payroll comments."
                 rows={4}
+                placeholder="Optional payroll notes, corrections, PTO, holiday, training, or other comments."
                 onChange={(
                   event
                 ) =>
@@ -1849,9 +1971,7 @@ export default function Home() {
 
       </section>
 
-      {/* ==================================================
-          RESULTS
-      ================================================== */}
+      {/* RESULTS */}
 
       {submitted && (
         <section
@@ -1900,7 +2020,7 @@ export default function Home() {
 
             <div className="summaryHeader">
               <div>
-                Day / Shift
+                Day
               </div>
 
               <div>
@@ -1931,7 +2051,7 @@ export default function Home() {
                 return (
                   <div
                     className="summaryRow"
-                    key={`summary-${index}`}
+                    key={`summary-${row.label}`}
                   >
 
                     <div>
