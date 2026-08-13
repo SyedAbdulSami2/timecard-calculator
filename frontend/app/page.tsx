@@ -20,6 +20,11 @@ type ConvertedPage = {
   table_image?: string
 }
 
+type OcrRegion = {
+  canvas: HTMLCanvasElement
+  label: string
+}
+
 const API = (
   process.env.NEXT_PUBLIC_API_URL ||
   'https://timecard-calculator-api.onrender.com'
@@ -34,6 +39,10 @@ const DAYS = [
   'Friday',
   'Saturday',
 ]
+
+/* ======================================================
+   EMPTY WEEK
+====================================================== */
 
 function manualRows(): DetectedShift[] {
   return DAYS.map((day) => ({
@@ -70,46 +79,29 @@ function normalizeTime(value: string) {
   return text
 }
 
-function parseTime(
-  value: string
-): number | null {
+function parseTime(value: string): number | null {
   if (!value?.trim()) {
     return null
   }
 
-  let text =
-    normalizeTime(value)
-
+  let text = normalizeTime(value)
   let meridiem = ''
 
-  const meridiemMatch =
-    text.match(/(AM|PM)$/)
+  const meridiemMatch = text.match(/(AM|PM)$/)
 
   if (meridiemMatch) {
-    meridiem =
-      meridiemMatch[1]
-
-    text =
-      text.replace(
-        /(AM|PM)$/,
-        ''
-      )
+    meridiem = meridiemMatch[1]
+    text = text.replace(/(AM|PM)$/, '')
   }
 
-  const match =
-    text.match(
-      /^(\d{1,2}):(\d{2})$/
-    )
+  const match = text.match(/^(\d{1,2}):(\d{2})$/)
 
   if (!match) {
     return null
   }
 
-  let hours =
-    Number(match[1])
-
-  const minutes =
-    Number(match[2])
+  let hours = Number(match[1])
+  const minutes = Number(match[2])
 
   if (
     Number.isNaN(hours) ||
@@ -121,10 +113,7 @@ function parseTime(
   }
 
   if (meridiem) {
-    if (
-      hours < 1 ||
-      hours > 12
-    ) {
+    if (hours < 1 || hours > 12) {
       return null
     }
 
@@ -132,21 +121,14 @@ function parseTime(
       hours = 0
     }
 
-    if (
-      meridiem === 'PM'
-    ) {
+    if (meridiem === 'PM') {
       hours += 12
     }
-  } else if (
-    hours > 23
-  ) {
+  } else if (hours > 23) {
     return null
   }
 
-  return (
-    hours * 60 +
-    minutes
-  )
+  return hours * 60 + minutes
 }
 
 function getShiftMinutes(
@@ -154,103 +136,64 @@ function getShiftMinutes(
   clockOut: string,
   breakMinutes = 0
 ) {
-  const start =
-    parseTime(clockIn)
+  const start = parseTime(clockIn)
+  const end = parseTime(clockOut)
 
-  const end =
-    parseTime(clockOut)
-
-  if (
-    start === null ||
-    end === null
-  ) {
+  if (start === null || end === null) {
     return 0
   }
 
-  let duration =
-    end - start
+  let duration = end - start
 
   if (duration < 0) {
-    duration +=
-      24 * 60
+    duration += 24 * 60
   }
 
   duration -= Math.max(
     0,
-    Number(
-      breakMinutes || 0
-    )
+    Number(breakMinutes || 0)
   )
 
-  return Math.max(
-    0,
-    duration
-  )
+  return Math.max(0, duration)
 }
 
 function isPlausibleShift(
   clockIn: string,
   clockOut: string
 ) {
-  const start =
-    parseTime(clockIn)
+  const start = parseTime(clockIn)
+  const end = parseTime(clockOut)
 
-  const end =
-    parseTime(clockOut)
-
-  if (
-    start === null ||
-    end === null
-  ) {
+  if (start === null || end === null) {
     return false
   }
 
-  let duration =
-    end - start
+  let duration = end - start
 
   if (duration < 0) {
-    duration +=
-      24 * 60
+    duration += 24 * 60
   }
 
-  if (
-    duration < 15
-  ) {
+  if (duration < 15) {
     return false
   }
 
-  if (
-    duration >
-    20 * 60
-  ) {
+  if (duration > 20 * 60) {
     return false
   }
 
   return true
 }
 
-function decimalHours(
-  minutes: number
-) {
-  return (
-    minutes / 60
-  ).toFixed(2)
+function decimalHours(minutes: number) {
+  return (minutes / 60).toFixed(2)
 }
 
-function hoursMinutes(
-  minutes: number
-) {
-  const hours =
-    Math.floor(
-      minutes / 60
-    )
+function hoursMinutes(minutes: number) {
+  const hours = Math.floor(minutes / 60)
+  const mins = minutes % 60
 
-  const mins =
-    minutes % 60
-
-  return `${hours}:${String(
-    mins
-  ).padStart(2, '0')}`
+  return `${hours}:${String(mins).padStart(2, '0')}`
 }
 
 /* ======================================================
@@ -260,131 +203,72 @@ function hoursMinutes(
 function dateToWeekday(
   dateText: string
 ): string | null {
-  const match =
-    dateText.match(
-      /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/
-    )
+  const match = dateText.match(
+    /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/
+  )
 
   if (!match) {
     return null
   }
 
-  const month =
-    Number(match[1])
+  const month = Number(match[1])
+  const day = Number(match[2])
 
-  const day =
-    Number(match[2])
-
-  let year =
-    Number(match[3])
+  let year = Number(match[3])
 
   if (year < 100) {
     year += 2000
   }
 
-  const date =
-    new Date(
-      year,
-      month - 1,
-      day
-    )
+  const date = new Date(
+    year,
+    month - 1,
+    day
+  )
 
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
+  if (Number.isNaN(date.getTime())) {
     return null
   }
 
-  const weekday =
-    date.toLocaleDateString(
-      'en-US',
-      {
-        weekday:
-          'long',
-      }
-    )
-
-  return DAYS.includes(
-    weekday
+  const weekday = date.toLocaleDateString(
+    'en-US',
+    {
+      weekday: 'long',
+    }
   )
+
+  return DAYS.includes(weekday)
     ? weekday
     : null
 }
 
 /* ======================================================
-   OCR HELPERS
+   DAY HELPERS
 ====================================================== */
 
-function normalizeDay(
-  value: string
-) {
-  const day =
-    value.toLowerCase()
+function normalizeDay(value: string) {
+  const day = value.toLowerCase()
 
-  if (
-    day.startsWith('sun')
-  ) {
-    return 'Sunday'
-  }
-
-  if (
-    day.startsWith('mon')
-  ) {
-    return 'Monday'
-  }
-
-  if (
-    day.startsWith('tue')
-  ) {
-    return 'Tuesday'
-  }
-
-  if (
-    day.startsWith('wed')
-  ) {
-    return 'Wednesday'
-  }
-
-  if (
-    day.startsWith('thu')
-  ) {
-    return 'Thursday'
-  }
-
-  if (
-    day.startsWith('fri')
-  ) {
-    return 'Friday'
-  }
-
-  if (
-    day.startsWith('sat')
-  ) {
-    return 'Saturday'
-  }
+  if (day.startsWith('sun')) return 'Sunday'
+  if (day.startsWith('mon')) return 'Monday'
+  if (day.startsWith('tue')) return 'Tuesday'
+  if (day.startsWith('wed')) return 'Wednesday'
+  if (day.startsWith('thu')) return 'Thursday'
+  if (day.startsWith('fri')) return 'Friday'
+  if (day.startsWith('sat')) return 'Saturday'
 
   return value
 }
 
-function findTimes(
-  text: string
-) {
-  const cleaned =
-    text
-      .replace(
-        /[Oo]/g,
-        '0'
-      )
-      .replace(
-        /[Il]/g,
-        '1'
-      )
-      .replace(
-        /[–—−]/g,
-        '-'
-      )
+/* ======================================================
+   FIND TIMES
+====================================================== */
+
+function findTimes(text: string) {
+  const cleaned = text
+    .replace(/[Oo]/g, '0')
+    .replace(/[Il]/g, '1')
+    .replace(/[–—−]/g, '-')
 
   const matches =
     cleaned.match(
@@ -392,25 +276,24 @@ function findTimes(
     ) || []
 
   return matches
-    .map(
-      normalizeTime
-    )
+    .map(normalizeTime)
     .filter(
       (time) =>
-        parseTime(
-          time
-        ) !== null
+        parseTime(time) !== null
     )
 }
+
+/* ======================================================
+   LABEL
+====================================================== */
 
 function detectLabel(
   text: string,
   index: number
 ) {
-  const dayMatch =
-    text.match(
-      /\b(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sun|Mon|Tue|Tues|Wed|Thu|Thur|Thurs|Fri|Sat)\b/i
-    )
+  const dayMatch = text.match(
+    /\b(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sun|Mon|Tue|Tues|Wed|Thu|Thur|Thurs|Fri|Sat)\b/i
+  )
 
   if (dayMatch) {
     return normalizeDay(
@@ -418,10 +301,9 @@ function detectLabel(
     )
   }
 
-  const dateMatch =
-    text.match(
-      /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/
-    )
+  const dateMatch = text.match(
+    /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/
+  )
 
   if (dateMatch) {
     const weekday =
@@ -434,29 +316,25 @@ function detectLabel(
     }
   }
 
-  return `Shift ${
-    index + 1
-  }`
+  return `Shift ${index + 1}`
 }
 
-function detectBreak(
-  text: string
-) {
-  const minuteMatch =
-    text.match(
-      /(?:break|meal|lunch)[^0-9]{0,20}(\d{1,3})\s*(?:min|mins|minutes)?/i
-    )
+/* ======================================================
+   BREAK
+====================================================== */
+
+function detectBreak(text: string) {
+  const minuteMatch = text.match(
+    /(?:break|meal|lunch)[^0-9]{0,20}(\d{1,3})\s*(?:min|mins|minutes)?/i
+  )
 
   if (minuteMatch) {
-    const value =
-      Number(
-        minuteMatch[1]
-      )
+    const value = Number(
+      minuteMatch[1]
+    )
 
     if (
-      !Number.isNaN(
-        value
-      ) &&
+      !Number.isNaN(value) &&
       value >= 0 &&
       value <= 180
     ) {
@@ -464,21 +342,18 @@ function detectBreak(
     }
   }
 
-  const timeMatch =
-    text.match(
-      /(\d{1,2})\s*:\s*(\d{2})\s*(?:break|meal|lunch)/i
-    )
+  const timeMatch = text.match(
+    /(\d{1,2})\s*:\s*(\d{2})\s*(?:break|meal|lunch)/i
+  )
 
   if (timeMatch) {
-    const hours =
-      Number(
-        timeMatch[1]
-      )
+    const hours = Number(
+      timeMatch[1]
+    )
 
-    const minutes =
-      Number(
-        timeMatch[2]
-      )
+    const minutes = Number(
+      timeMatch[2]
+    )
 
     const total =
       hours * 60 +
@@ -495,23 +370,20 @@ function detectBreak(
   return 0
 }
 
-function detectPrintedHours(
-  text: string
-) {
+/* ======================================================
+   PRINTED HOURS
+====================================================== */
+
+function detectPrintedHours(text: string) {
   const patterns = [
     /daily\s*total\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
     /hours?\s*(?:worked)?\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
     /total\s*hours?\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
   ]
 
-  for (
-    const pattern
-    of patterns
-  ) {
+  for (const pattern of patterns) {
     const match =
-      text.match(
-        pattern
-      )
+      text.match(pattern)
 
     if (!match) {
       continue
@@ -523,9 +395,7 @@ function detectPrintedHours(
       )
 
     if (
-      !Number.isNaN(
-        value
-      ) &&
+      !Number.isNaN(value) &&
       value >= 0 &&
       value <= 24
     ) {
@@ -535,6 +405,10 @@ function detectPrintedHours(
 
   return null
 }
+
+/* ======================================================
+   ADD DETECTED SHIFT
+====================================================== */
 
 function addCandidate(
   result: DetectedShift[],
@@ -566,8 +440,7 @@ function addCandidate(
   const duplicate =
     result.some(
       (row) =>
-        row.label ===
-          label &&
+        row.label === label &&
         row.clock_in ===
           normalizedStart &&
         row.clock_out ===
@@ -596,8 +469,7 @@ function addCandidate(
     ) / 60
 
   const needsReview =
-    printedHours !==
-      null &&
+    printedHours !== null &&
     Math.abs(
       calculatedHours -
         printedHours
@@ -605,26 +477,21 @@ function addCandidate(
 
   result.push({
     label,
-
     clock_in:
       normalizedStart,
-
     clock_out:
       normalizedEnd,
-
     break_minutes:
       breakMinutes,
-
     printed_hours:
       printedHours,
-
     needs_review:
       needsReview,
   })
 }
 
 /* ======================================================
-   BUILD SUNDAY → SATURDAY WEEK
+   BUILD SUNDAY → SATURDAY
 ====================================================== */
 
 function buildWeeklyRows(
@@ -633,10 +500,7 @@ function buildWeeklyRows(
   const week =
     manualRows()
 
-  for (
-    const row
-    of detected
-  ) {
+  for (const row of detected) {
     const weekday =
       DAYS.find(
         (day) =>
@@ -663,7 +527,531 @@ function buildWeeklyRows(
 }
 
 /* ======================================================
-   UNIVERSAL PARSER
+   IMAGE LOADER
+====================================================== */
+
+function loadImage(
+  source: string
+): Promise<HTMLImageElement> {
+  return new Promise(
+    (resolve, reject) => {
+      const image =
+        new Image()
+
+      image.onload = () =>
+        resolve(image)
+
+      image.onerror = () =>
+        reject(
+          new Error(
+            'Could not load converted page image.'
+          )
+        )
+
+      image.src = source
+    }
+  )
+}
+
+/* ======================================================
+   CROP IMAGE
+====================================================== */
+
+function cropImage(
+  image: HTMLImageElement,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  scale = 2
+) {
+  const canvas =
+    document.createElement(
+      'canvas'
+    )
+
+  canvas.width =
+    Math.max(
+      1,
+      Math.round(
+        width * scale
+      )
+    )
+
+  canvas.height =
+    Math.max(
+      1,
+      Math.round(
+        height * scale
+      )
+    )
+
+  const context =
+    canvas.getContext(
+      '2d',
+      {
+        willReadFrequently:
+          true,
+      }
+    )
+
+  if (!context) {
+    throw new Error(
+      'Could not create OCR canvas.'
+    )
+  }
+
+  context.drawImage(
+    image,
+    x,
+    y,
+    width,
+    height,
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  )
+
+  const imageData =
+    context.getImageData(
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    )
+
+  const pixels =
+    imageData.data
+
+  for (
+    let index = 0;
+    index < pixels.length;
+    index += 4
+  ) {
+    const gray =
+      pixels[index] *
+        0.299 +
+      pixels[index + 1] *
+        0.587 +
+      pixels[index + 2] *
+        0.114
+
+    let value =
+      gray
+
+    if (gray < 160) {
+      value =
+        Math.max(
+          0,
+          gray - 35
+        )
+    } else {
+      value =
+        Math.min(
+          255,
+          gray + 18
+        )
+    }
+
+    pixels[index] =
+      value
+
+    pixels[index + 1] =
+      value
+
+    pixels[index + 2] =
+      value
+  }
+
+  context.putImageData(
+    imageData,
+    0,
+    0
+  )
+
+  return canvas
+}
+
+/* ======================================================
+   BUILD OCR REGIONS
+====================================================== */
+
+function buildOcrRegions(
+  image: HTMLImageElement
+): OcrRegion[] {
+  const regions:
+    OcrRegion[] = []
+
+  const width =
+    image.naturalWidth ||
+    image.width
+
+  const height =
+    image.naturalHeight ||
+    image.height
+
+  /*
+   * Full page
+   */
+  regions.push({
+    label:
+      'full-page',
+
+    canvas:
+      cropImage(
+        image,
+        0,
+        0,
+        width,
+        height,
+        1.5
+      ),
+  })
+
+  /*
+   * Horizontal strips.
+   */
+  const stripHeight =
+    Math.max(
+      140,
+      Math.round(
+        height * 0.16
+      )
+    )
+
+  const step =
+    Math.max(
+      80,
+      Math.round(
+        stripHeight *
+          0.6
+      )
+    )
+
+  let rowNumber = 1
+
+  for (
+    let y = 0;
+    y < height;
+    y += step
+  ) {
+    const actualHeight =
+      Math.min(
+        stripHeight,
+        height - y
+      )
+
+    if (
+      actualHeight < 70
+    ) {
+      continue
+    }
+
+    regions.push({
+      label:
+        `row-${rowNumber}`,
+
+      canvas:
+        cropImage(
+          image,
+          0,
+          y,
+          width,
+          actualHeight,
+          2
+        ),
+    })
+
+    /*
+     * Wide image:
+     * OCR left and right halves separately.
+     */
+    if (
+      width >= 850
+    ) {
+      const halfWidth =
+        Math.round(
+          width / 2
+        )
+
+      regions.push({
+        label:
+          `row-${rowNumber}-left`,
+
+        canvas:
+          cropImage(
+            image,
+            0,
+            y,
+            halfWidth,
+            actualHeight,
+            2.2
+          ),
+      })
+
+      regions.push({
+        label:
+          `row-${rowNumber}-right`,
+
+        canvas:
+          cropImage(
+            image,
+            halfWidth,
+            y,
+            width -
+              halfWidth,
+            actualHeight,
+            2.2
+          ),
+      })
+    }
+
+    rowNumber++
+  }
+
+  return regions
+}
+
+/* ======================================================
+   OCR CANVAS
+====================================================== */
+
+async function recognizeCanvas(
+  canvas: HTMLCanvasElement
+) {
+  const Tesseract =
+    await import(
+      'tesseract.js'
+    )
+
+  const result =
+    await Tesseract.recognize(
+      canvas,
+      'eng',
+      {
+        logger: (
+          progress: any
+        ) => {
+          if (
+            progress.status ===
+            'recognizing text'
+          ) {
+            console.log(
+              'OCR:',
+              Math.round(
+                (
+                  progress.progress ||
+                  0
+                ) * 100
+              ),
+              '%'
+            )
+          }
+        },
+      }
+    )
+
+  return (
+    result.data.text ||
+    ''
+  ).trim()
+}
+
+/* ======================================================
+   REMOVE DUPLICATE OCR TEXT
+====================================================== */
+
+function uniqueOcrTexts(
+  values: string[]
+) {
+  const unique:
+    string[] = []
+
+  const seen =
+    new Set<string>()
+
+  for (
+    const value
+    of values
+  ) {
+    const cleaned =
+      value
+        .replace(
+          /\s+/g,
+          ' '
+        )
+        .trim()
+
+    if (
+      cleaned.length < 3
+    ) {
+      continue
+    }
+
+    const key =
+      cleaned.toLowerCase()
+
+    if (
+      seen.has(key)
+    ) {
+      continue
+    }
+
+    seen.add(key)
+
+    unique.push(
+      value.trim()
+    )
+  }
+
+  return unique
+}
+
+/* ======================================================
+   OCR SEGMENTED PAGE
+====================================================== */
+
+async function recognizeSegmentedPage(
+  source: string,
+  pageNumber: number
+) {
+  const image =
+    await loadImage(
+      source
+    )
+
+  const regions =
+    buildOcrRegions(
+      image
+    )
+
+  const texts:
+    string[] = []
+
+  for (
+    let index = 0;
+    index < regions.length;
+    index++
+  ) {
+    const region =
+      regions[index]
+
+    try {
+      const text =
+        await recognizeCanvas(
+          region.canvas
+        )
+
+      console.log(
+        `OCR PAGE ${pageNumber} / ${region.label}:`,
+        text
+      )
+
+      if (
+        text &&
+        text.trim()
+      ) {
+        texts.push(
+          [
+            `OCR_REGION_${region.label}`,
+            text.trim(),
+            'END_OCR_REGION',
+          ].join('\n')
+        )
+      }
+    } catch (
+      error
+    ) {
+      console.warn(
+        `OCR failed for ${region.label}`,
+        error
+      )
+    }
+
+    /*
+     * Release memory.
+     */
+    region.canvas.width = 1
+    region.canvas.height = 1
+  }
+
+  return uniqueOcrTexts(
+    texts
+  )
+}
+
+/* ======================================================
+   READ ALL PAGES
+====================================================== */
+
+async function readConvertedPages(
+  pages: ConvertedPage[],
+  onProgress?: (
+    current: number,
+    total: number
+  ) => void
+) {
+  const allTexts:
+    string[] = []
+
+  for (
+    let pageIndex = 0;
+    pageIndex <
+      pages.length;
+    pageIndex++
+  ) {
+    const page =
+      pages[
+        pageIndex
+      ]
+
+    onProgress?.(
+      pageIndex + 1,
+      pages.length
+    )
+
+    /*
+     * Prefer OCR image.
+     */
+    const source =
+      page.ocr_image ||
+      page.table_image ||
+      page.image
+
+    if (!source) {
+      continue
+    }
+
+    try {
+      const texts =
+        await recognizeSegmentedPage(
+          source,
+          pageIndex + 1
+        )
+
+      allTexts.push(
+        ...texts
+      )
+    } catch (
+      error
+    ) {
+      console.warn(
+        `Could not OCR page ${
+          pageIndex + 1
+        }:`,
+        error
+      )
+    }
+  }
+
+  return allTexts.join(
+    '\n\n'
+  )
+}
+
+/* ======================================================
+   UNIVERSAL TIMECARD PARSER
 ====================================================== */
 
 function parseUniversalTimecard(
@@ -680,27 +1068,129 @@ function parseUniversalTimecard(
         '-'
       )
 
+  const detected:
+    DetectedShift[] = []
+
+  /* ==================================================
+     PASS 1
+     Parse individual OCR regions
+  ================================================== */
+
+  const regionMatches =
+    cleaned.match(
+      /OCR_REGION_[^\n]+\n([\s\S]*?)\nEND_OCR_REGION/g
+    ) || []
+
+  for (
+    const regionBlock
+    of regionMatches
+  ) {
+    const regionText =
+      regionBlock
+        .replace(
+          /^OCR_REGION_[^\n]+\n/,
+          ''
+        )
+        .replace(
+          /\nEND_OCR_REGION$/,
+          ''
+        )
+        .trim()
+
+    if (!regionText) {
+      continue
+    }
+
+    const times =
+      findTimes(
+        regionText
+      )
+
+    console.log(
+      'REGION TEXT:',
+      regionText
+    )
+
+    console.log(
+      'REGION TIMES:',
+      times
+    )
+
+    if (
+      times.length < 2
+    ) {
+      continue
+    }
+
+    /*
+     * Try adjacent times.
+     */
+    for (
+      let index = 0;
+      index + 1 <
+        times.length;
+      index++
+    ) {
+      const start =
+        times[
+          index
+        ]
+
+      const end =
+        times[
+          index + 1
+        ]
+
+      if (
+        !isPlausibleShift(
+          start,
+          end
+        )
+      ) {
+        continue
+      }
+
+      addCandidate(
+        detected,
+        regionText,
+        start,
+        end
+      )
+
+      break
+    }
+  }
+
+  /* ==================================================
+     PASS 2
+     Normal OCR lines
+  ================================================== */
+
   const lines =
     cleaned
+      .replace(
+        /OCR_REGION_[^\n]+/g,
+        ''
+      )
+      .replace(
+        /END_OCR_REGION/g,
+        ''
+      )
       .split('\n')
       .map(
         (line) =>
           line.trim()
       )
-      .filter(
-        Boolean
-      )
+      .filter(Boolean)
 
-  const detected:
-    DetectedShift[] = []
-
-  /* PASS 1 */
   for (
     const line
     of lines
   ) {
     const times =
-      findTimes(line)
+      findTimes(
+        line
+      )
 
     if (
       times.length < 2
@@ -717,7 +1207,9 @@ function parseUniversalTimecard(
       addCandidate(
         detected,
         line,
-        times[index],
+        times[
+          index
+        ],
         times[
           index + 1
         ]
@@ -725,7 +1217,11 @@ function parseUniversalTimecard(
     }
   }
 
-  /* PASS 2 - always run */
+  /* ==================================================
+     PASS 3
+     Nearby lines containing day/date
+  ================================================== */
+
   for (
     let index = 0;
     index <
@@ -758,7 +1254,9 @@ function parseUniversalTimecard(
     }
 
     const times =
-      findTimes(block)
+      findTimes(
+        block
+      )
 
     if (
       times.length < 2
@@ -770,49 +1268,42 @@ function parseUniversalTimecard(
       let timeIndex = 0;
       timeIndex + 1 <
         times.length;
-      timeIndex += 2
+      timeIndex++
     ) {
-      addCandidate(
-        detected,
-        block,
+      const start =
         times[
           timeIndex
-        ],
+        ]
+
+      const end =
         times[
           timeIndex + 1
         ]
-      )
-    }
-  }
 
-  /* PASS 3 */
-  if (
-    detected.length ===
-    0
-  ) {
-    const allTimes =
-      findTimes(
-        cleaned
-      )
+      if (
+        !isPlausibleShift(
+          start,
+          end
+        )
+      ) {
+        continue
+      }
 
-    for (
-      let index = 0;
-      index + 1 <
-        allTimes.length;
-      index += 2
-    ) {
       addCandidate(
         detected,
-        '',
-        allTimes[
-          index
-        ],
-        allTimes[
-          index + 1
-        ]
+        block,
+        start,
+        end
       )
+
+      break
     }
   }
+
+  console.log(
+    'ALL RAW DETECTED ROWS:',
+    detected
+  )
 
   return buildWeeklyRows(
     detected
@@ -825,9 +1316,7 @@ function parseUniversalTimecard(
 
 async function convertUploadedDocument(
   file: File
-): Promise<
-  ConvertedPage[]
-> {
+): Promise<ConvertedPage[]> {
   const form =
     new FormData()
 
@@ -840,8 +1329,7 @@ async function convertUploadedDocument(
     await fetch(
       `${API}/convert-timecard`,
       {
-        method:
-          'POST',
+        method: 'POST',
         body: form,
       }
     )
@@ -857,9 +1345,7 @@ async function convertUploadedDocument(
     )
   }
 
-  if (
-    !response.ok
-  ) {
+  if (!response.ok) {
     throw new Error(
       data?.detail ||
         'Could not prepare this document.'
@@ -879,121 +1365,6 @@ async function convertUploadedDocument(
   }
 
   return data.pages
-}
-
-/* ======================================================
-   OCR
-====================================================== */
-
-async function recognizeConvertedPage(
-  imageUrl: string
-) {
-  const Tesseract =
-    await import(
-      'tesseract.js'
-    )
-
-  const result =
-    await Tesseract.recognize(
-      imageUrl,
-      'eng',
-      {
-        logger: (
-          progress: any
-        ) => {
-          console.log(
-            'OCR progress:',
-            progress
-          )
-        },
-      }
-    )
-
-  return (
-    result.data.text ||
-    ''
-  )
-}
-
-/* ======================================================
-   OCR ALL IMAGE VERSIONS
-====================================================== */
-
-async function readConvertedPages(
-  pages: ConvertedPage[],
-  onProgress?: (
-    current: number,
-    total: number
-  ) => void
-) {
-  let fullText = ''
-
-  for (
-    let index = 0;
-    index <
-      pages.length;
-    index++
-  ) {
-    onProgress?.(
-      index + 1,
-      pages.length
-    )
-
-    const page =
-      pages[index]
-
-    const images = [
-      page.table_image,
-      page.ocr_image,
-      page.image,
-    ].filter(
-      (
-        value
-      ): value is string =>
-        Boolean(value)
-    )
-
-    const pageTexts:
-      string[] = []
-
-    for (
-      const image
-      of images
-    ) {
-      try {
-        const text =
-          await recognizeConvertedPage(
-            image
-          )
-
-        if (
-          text &&
-          text.trim()
-        ) {
-          pageTexts.push(
-            text.trim()
-          )
-        }
-      } catch (
-        error
-      ) {
-        console.warn(
-          'OCR version failed:',
-          error
-        )
-      }
-    }
-
-    fullText +=
-      '\n' +
-      pageTexts.join(
-        '\n'
-      )
-  }
-
-  return (
-    fullText.trim()
-  )
 }
 
 /* ======================================================
@@ -1041,11 +1412,13 @@ export default function Home() {
     useState(false)
 
   const fileRef =
-    useRef<
-      HTMLInputElement
-    >(null)
+    useRef<HTMLInputElement>(
+      null
+    )
 
-  /* EMPLOYEE */
+  /* ======================================================
+     EMPLOYEE
+  ====================================================== */
 
   const [
     employeeName,
@@ -1071,7 +1444,9 @@ export default function Home() {
   ] =
     useState('')
 
-  /* PAY */
+  /* ======================================================
+     PAY
+  ====================================================== */
 
   const [
     hourlyRate,
@@ -1115,7 +1490,9 @@ export default function Home() {
   ] =
     useState('1.5')
 
-  /* PAY PERIOD */
+  /* ======================================================
+     PAY PERIOD
+  ====================================================== */
 
   const [
     weekStartDate,
@@ -1180,6 +1557,10 @@ export default function Home() {
       [workedMinutes]
     )
 
+  /* ======================================================
+     UPDATE ROW
+  ====================================================== */
+
   function updateRow(
     index: number,
     key:
@@ -1209,6 +1590,10 @@ export default function Home() {
     )
   }
 
+  /* ======================================================
+     MANUAL MODE
+  ====================================================== */
+
   function startManual() {
     setRows(
       manualRows()
@@ -1223,6 +1608,20 @@ export default function Home() {
     )
 
     setMessage('')
+
+    setTimeout(
+      () => {
+        document
+          .getElementById(
+            'calculator'
+          )
+          ?.scrollIntoView({
+            behavior:
+              'smooth',
+          })
+      },
+      50
+    )
   }
 
   /* ======================================================
@@ -1287,7 +1686,9 @@ export default function Home() {
 
       console.log(
         'OCR TIMES:',
-        findTimes(text)
+        findTimes(
+          text
+        )
       )
 
       if (
@@ -1329,6 +1730,10 @@ export default function Home() {
           'manual'
         )
 
+        setSubmitted(
+          false
+        )
+
         setMessage(
           'The document was read successfully, but reliable clock-in and clock-out pairs were not detected. Please enter or correct the shifts manually.'
         )
@@ -1364,6 +1769,20 @@ export default function Home() {
           `${detectedCount} workday(s) detected. Please verify the extracted times.`
         )
       }
+
+      setTimeout(
+        () => {
+          document
+            .getElementById(
+              'results'
+            )
+            ?.scrollIntoView({
+              behavior:
+                'smooth',
+            })
+        },
+        150
+      )
     } catch (
       error: any
     ) {
@@ -1402,7 +1821,7 @@ export default function Home() {
   }
 
   /* ======================================================
-     CALCULATE MANUAL
+     MANUAL CALCULATE
   ====================================================== */
 
   function calculateManual() {
@@ -1507,6 +1926,10 @@ export default function Home() {
   return (
     <main className="pageShell">
 
+      {/* ==================================================
+          HERO
+      ================================================== */}
+
       <section className="pageHero">
 
         <div className="heroBadge">
@@ -1572,8 +1995,11 @@ export default function Home() {
           />
 
         </div>
-
       </section>
+
+      {/* ==================================================
+          CALCULATOR
+      ================================================== */}
 
       <section
         className="calculatorCard"
@@ -1600,9 +2026,14 @@ export default function Home() {
           </div>
         )}
 
+        {/* ==================================================
+            TIME TABLE
+        ================================================== */}
+
         <div className="timeTable">
 
           <div className="timeTableHeader">
+
             <div>
               Day
             </div>
@@ -1622,6 +2053,7 @@ export default function Home() {
             <div>
               Hours
             </div>
+
           </div>
 
           {rows.map(
@@ -1703,6 +2135,7 @@ export default function Home() {
                 </div>
 
                 <div className="dailyHours">
+
                   {row.clock_in &&
                   row.clock_out
                     ? hoursMinutes(
@@ -1711,6 +2144,7 @@ export default function Home() {
                         ]
                       )
                     : '—'}
+
                 </div>
 
               </div>
@@ -1719,10 +2153,15 @@ export default function Home() {
 
         </div>
 
+        {/* ==================================================
+            EMPLOYEE DETAILS
+        ================================================== */}
+
         <div className="employeeDetailsSection">
 
           <div className="detailsSectionHeader">
             <div>
+
               <span className="detailsSectionLabel">
                 EMPLOYEE INFORMATION
               </span>
@@ -1730,6 +2169,7 @@ export default function Home() {
               <h3>
                 Employee Details
               </h3>
+
             </div>
           </div>
 
@@ -1821,10 +2261,15 @@ export default function Home() {
 
           </div>
 
+          {/* ==================================================
+              PAY
+          ================================================== */}
+
           <div className="detailsSubSection">
 
             <div className="detailsSectionHeader">
               <div>
+
                 <span className="detailsSectionLabel">
                   PAY & OVERTIME
                 </span>
@@ -1832,12 +2277,14 @@ export default function Home() {
                 <h3>
                   Pay Configuration
                 </h3>
+
               </div>
             </div>
 
             <div className="payConfigurationGrid">
 
               <label>
+
                 <span>
                   Hourly Rate
                 </span>
@@ -1858,9 +2305,11 @@ export default function Home() {
                     )
                   }
                 />
+
               </label>
 
               <label>
+
                 <span>
                   Currency
                 </span>
@@ -1897,9 +2346,11 @@ export default function Home() {
                     A$ AUD
                   </option>
                 </select>
+
               </label>
 
               <label>
+
                 <span>
                   Standard Weekly Hours
                 </span>
@@ -1919,9 +2370,11 @@ export default function Home() {
                     )
                   }
                 />
+
               </label>
 
               <label>
+
                 <span>
                   Standard Daily Hours
                 </span>
@@ -1941,9 +2394,11 @@ export default function Home() {
                     )
                   }
                 />
+
               </label>
 
               <label>
+
                 <span>
                   Overtime Rule
                 </span>
@@ -1975,9 +2430,11 @@ export default function Home() {
                     Daily Overtime
                   </option>
                 </select>
+
               </label>
 
               <label>
+
                 <span>
                   Overtime Multiplier
                 </span>
@@ -2001,16 +2458,21 @@ export default function Home() {
                     )
                   }
                 />
+
               </label>
 
             </div>
-
           </div>
+
+          {/* ==================================================
+              PAY PERIOD
+          ================================================== */}
 
           <div className="detailsSubSection">
 
             <div className="detailsSectionHeader">
               <div>
+
                 <span className="detailsSectionLabel">
                   PAY PERIOD
                 </span>
@@ -2018,12 +2480,14 @@ export default function Home() {
                 <h3>
                   Period Details
                 </h3>
+
               </div>
             </div>
 
             <div className="payPeriodGrid">
 
               <label>
+
                 <span>
                   Week Start Date
                 </span>
@@ -2041,9 +2505,11 @@ export default function Home() {
                     )
                   }
                 />
+
               </label>
 
               <label>
+
                 <span>
                   Week End Date
                 </span>
@@ -2061,9 +2527,11 @@ export default function Home() {
                     )
                   }
                 />
+
               </label>
 
               <label>
+
                 <span>
                   Pay Period
                 </span>
@@ -2083,6 +2551,7 @@ export default function Home() {
                     )
                   }
                 >
+
                   <option value="weekly">
                     Weekly
                   </option>
@@ -2094,12 +2563,17 @@ export default function Home() {
                   <option value="semimonthly">
                     Semi-monthly
                   </option>
+
                 </select>
+
               </label>
 
             </div>
-
           </div>
+
+          {/* ==================================================
+              NOTES
+          ================================================== */}
 
           <div className="detailsSubSection">
 
@@ -2130,6 +2604,10 @@ export default function Home() {
 
         </div>
 
+        {/* ==================================================
+            ACTIONS
+        ================================================== */}
+
         <div className="calculatorActions">
 
           {mode ===
@@ -2157,6 +2635,10 @@ export default function Home() {
 
       </section>
 
+      {/* ==================================================
+          RESULTS
+      ================================================== */}
+
       {submitted && (
         <section
           className="resultsCard"
@@ -2166,6 +2648,7 @@ export default function Home() {
           <div className="resultsHeading">
 
             <div>
+
               <span>
                 WORK HOURS SUMMARY
               </span>
@@ -2173,6 +2656,7 @@ export default function Home() {
               <h2>
                 Calculated Results
               </h2>
+
             </div>
 
             <div className="totalHoursBox">
@@ -2201,6 +2685,7 @@ export default function Home() {
           <div className="summaryTable">
 
             <div className="summaryHeader">
+
               <div>
                 Day
               </div>
@@ -2216,6 +2701,7 @@ export default function Home() {
               <div>
                 Hours
               </div>
+
             </div>
 
             {rows.map(
@@ -2285,6 +2771,7 @@ export default function Home() {
           <div className="resultsFooter">
 
             <div>
+
               <small>
                 Total Weekly Hours
               </small>
@@ -2301,6 +2788,7 @@ export default function Home() {
                 )}{' '}
                 decimal hours
               </span>
+
             </div>
 
             <button
