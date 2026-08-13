@@ -63,8 +63,8 @@ function normalizeTime(value: string) {
   let text = value
     .trim()
     .toUpperCase()
-    .replace(/[Oo]/g, '0')
-    .replace(/[Il]/g, '1')
+    .replace(/[OQ]/g, '0')
+    .replace(/[IL|]/g, '1')
     .replace(/\./g, ':')
     .replace(/\s+/g, '')
 
@@ -79,29 +79,46 @@ function normalizeTime(value: string) {
   return text
 }
 
-function parseTime(value: string): number | null {
+function parseTime(
+  value: string
+): number | null {
   if (!value?.trim()) {
     return null
   }
 
-  let text = normalizeTime(value)
+  let text =
+    normalizeTime(value)
+
   let meridiem = ''
 
-  const meridiemMatch = text.match(/(AM|PM)$/)
+  const meridiemMatch =
+    text.match(/(AM|PM)$/)
 
   if (meridiemMatch) {
-    meridiem = meridiemMatch[1]
-    text = text.replace(/(AM|PM)$/, '')
+    meridiem =
+      meridiemMatch[1]
+
+    text =
+      text.replace(
+        /(AM|PM)$/,
+        ''
+      )
   }
 
-  const match = text.match(/^(\d{1,2}):(\d{2})$/)
+  const match =
+    text.match(
+      /^(\d{1,2}):(\d{2})$/
+    )
 
   if (!match) {
     return null
   }
 
-  let hours = Number(match[1])
-  const minutes = Number(match[2])
+  let hours =
+    Number(match[1])
+
+  const minutes =
+    Number(match[2])
 
   if (
     Number.isNaN(hours) ||
@@ -113,7 +130,10 @@ function parseTime(value: string): number | null {
   }
 
   if (meridiem) {
-    if (hours < 1 || hours > 12) {
+    if (
+      hours < 1 ||
+      hours > 12
+    ) {
       return null
     }
 
@@ -121,14 +141,21 @@ function parseTime(value: string): number | null {
       hours = 0
     }
 
-    if (meridiem === 'PM') {
+    if (
+      meridiem === 'PM'
+    ) {
       hours += 12
     }
-  } else if (hours > 23) {
+  } else if (
+    hours > 23
+  ) {
     return null
   }
 
-  return hours * 60 + minutes
+  return (
+    hours * 60 +
+    minutes
+  )
 }
 
 function getShiftMinutes(
@@ -136,64 +163,103 @@ function getShiftMinutes(
   clockOut: string,
   breakMinutes = 0
 ) {
-  const start = parseTime(clockIn)
-  const end = parseTime(clockOut)
+  const start =
+    parseTime(clockIn)
 
-  if (start === null || end === null) {
+  const end =
+    parseTime(clockOut)
+
+  if (
+    start === null ||
+    end === null
+  ) {
     return 0
   }
 
-  let duration = end - start
+  let duration =
+    end - start
 
   if (duration < 0) {
-    duration += 24 * 60
+    duration +=
+      24 * 60
   }
 
   duration -= Math.max(
     0,
-    Number(breakMinutes || 0)
+    Number(
+      breakMinutes || 0
+    )
   )
 
-  return Math.max(0, duration)
+  return Math.max(
+    0,
+    duration
+  )
 }
 
 function isPlausibleShift(
   clockIn: string,
   clockOut: string
 ) {
-  const start = parseTime(clockIn)
-  const end = parseTime(clockOut)
+  const start =
+    parseTime(clockIn)
 
-  if (start === null || end === null) {
+  const end =
+    parseTime(clockOut)
+
+  if (
+    start === null ||
+    end === null
+  ) {
     return false
   }
 
-  let duration = end - start
+  let duration =
+    end - start
 
   if (duration < 0) {
-    duration += 24 * 60
+    duration +=
+      24 * 60
   }
 
-  if (duration < 15) {
+  if (
+    duration < 15
+  ) {
     return false
   }
 
-  if (duration > 20 * 60) {
+  if (
+    duration >
+    20 * 60
+  ) {
     return false
   }
 
   return true
 }
 
-function decimalHours(minutes: number) {
-  return (minutes / 60).toFixed(2)
+function decimalHours(
+  minutes: number
+) {
+  return (
+    minutes / 60
+  ).toFixed(2)
 }
 
-function hoursMinutes(minutes: number) {
-  const hours = Math.floor(minutes / 60)
-  const mins = minutes % 60
+function hoursMinutes(
+  minutes: number
+) {
+  const hours =
+    Math.floor(
+      minutes / 60
+    )
 
-  return `${hours}:${String(mins).padStart(2, '0')}`
+  const mins =
+    minutes % 60
+
+  return `${hours}:${String(
+    mins
+  ).padStart(2, '0')}`
 }
 
 /* ======================================================
@@ -203,41 +269,55 @@ function hoursMinutes(minutes: number) {
 function dateToWeekday(
   dateText: string
 ): string | null {
-  const match = dateText.match(
-    /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/
-  )
+  const match =
+    dateText.match(
+      /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/
+    )
 
   if (!match) {
     return null
   }
 
-  const month = Number(match[1])
-  const day = Number(match[2])
+  const month =
+    Number(match[1])
 
-  let year = Number(match[3])
+  const day =
+    Number(match[2])
+
+  let year =
+    Number(match[3])
 
   if (year < 100) {
     year += 2000
   }
 
-  const date = new Date(
-    year,
-    month - 1,
-    day
-  )
+  const date =
+    new Date(
+      year,
+      month - 1,
+      day
+    )
 
-  if (Number.isNaN(date.getTime())) {
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
     return null
   }
 
-  const weekday = date.toLocaleDateString(
-    'en-US',
-    {
-      weekday: 'long',
-    }
-  )
+  const weekday =
+    date.toLocaleDateString(
+      'en-US',
+      {
+        weekday:
+          'long',
+      }
+    )
 
-  return DAYS.includes(weekday)
+  return DAYS.includes(
+    weekday
+  )
     ? weekday
     : null
 }
@@ -246,16 +326,53 @@ function dateToWeekday(
    DAY HELPERS
 ====================================================== */
 
-function normalizeDay(value: string) {
-  const day = value.toLowerCase()
+function normalizeDay(
+  value: string
+) {
+  const day =
+    value.toLowerCase()
 
-  if (day.startsWith('sun')) return 'Sunday'
-  if (day.startsWith('mon')) return 'Monday'
-  if (day.startsWith('tue')) return 'Tuesday'
-  if (day.startsWith('wed')) return 'Wednesday'
-  if (day.startsWith('thu')) return 'Thursday'
-  if (day.startsWith('fri')) return 'Friday'
-  if (day.startsWith('sat')) return 'Saturday'
+  if (
+    day.startsWith('sun')
+  ) {
+    return 'Sunday'
+  }
+
+  if (
+    day.startsWith('mon')
+  ) {
+    return 'Monday'
+  }
+
+  if (
+    day.startsWith('tue')
+  ) {
+    return 'Tuesday'
+  }
+
+  if (
+    day.startsWith('wed')
+  ) {
+    return 'Wednesday'
+  }
+
+  if (
+    day.startsWith('thu')
+  ) {
+    return 'Thursday'
+  }
+
+  if (
+    day.startsWith('fri')
+  ) {
+    return 'Friday'
+  }
+
+  if (
+    day.startsWith('sat')
+  ) {
+    return 'Saturday'
+  }
 
   return value
 }
@@ -264,36 +381,98 @@ function normalizeDay(value: string) {
    FIND TIMES
 ====================================================== */
 
-function findTimes(text: string) {
+function findTimes(
+  text: string
+) {
   const cleaned = text
-    .replace(/[Oo]/g, '0')
-    .replace(/[Il]/g, '1')
+    .toUpperCase()
+    .replace(/[OQ]/g, '0')
+    .replace(/[IL|]/g, '1')
+    .replace(/[;,]/g, ':')
     .replace(/[–—−]/g, '-')
 
-  const matches =
+  const candidates =
     cleaned.match(
-      /\b(?:\d{1,2}[:.]\d{2}|\d{3,4})\s*(?:AM|PM)?\b/gi
+      /(?:\b\d{1,2}\s*[:.]\s*\d{2}\b|\b\d{3,4}\b)\s*(?:A\s*M|P\s*M|AM|PM)?/g
     ) || []
 
-  return matches
-    .map(normalizeTime)
-    .filter(
-      (time) =>
-        parseTime(time) !== null
-    )
+  const result:
+    string[] = []
+
+  for (
+    const candidate
+    of candidates
+  ) {
+    let value =
+      candidate
+        .replace(
+          /\s+/g,
+          ''
+        )
+        .replace(
+          '.',
+          ':'
+        )
+        .replace(
+          /A\s*M/i,
+          'AM'
+        )
+        .replace(
+          /P\s*M/i,
+          'PM'
+        )
+
+    const threeDigit =
+      value.match(
+        /^(\d)(\d{2})(AM|PM)?$/
+      )
+
+    if (threeDigit) {
+      value =
+        `${threeDigit[1]}:${threeDigit[2]}${threeDigit[3] || ''}`
+    }
+
+    const fourDigit =
+      value.match(
+        /^(\d{2})(\d{2})(AM|PM)?$/
+      )
+
+    if (fourDigit) {
+      value =
+        `${fourDigit[1]}:${fourDigit[2]}${fourDigit[3] || ''}`
+    }
+
+    const normalized =
+      normalizeTime(
+        value
+      )
+
+    if (
+      parseTime(
+        normalized
+      ) !== null
+    ) {
+      result.push(
+        normalized
+      )
+    }
+  }
+
+  return result
 }
 
 /* ======================================================
-   LABEL
+   DETECT LABEL
 ====================================================== */
 
 function detectLabel(
   text: string,
   index: number
 ) {
-  const dayMatch = text.match(
-    /\b(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sun|Mon|Tue|Tues|Wed|Thu|Thur|Thurs|Fri|Sat)\b/i
-  )
+  const dayMatch =
+    text.match(
+      /\b(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sun|Mon|Tue|Tues|Wed|Thu|Thur|Thurs|Fri|Sat)\b/i
+    )
 
   if (dayMatch) {
     return normalizeDay(
@@ -301,9 +480,10 @@ function detectLabel(
     )
   }
 
-  const dateMatch = text.match(
-    /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/
-  )
+  const dateMatch =
+    text.match(
+      /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/
+    )
 
   if (dateMatch) {
     const weekday =
@@ -323,18 +503,24 @@ function detectLabel(
    BREAK
 ====================================================== */
 
-function detectBreak(text: string) {
-  const minuteMatch = text.match(
-    /(?:break|meal|lunch)[^0-9]{0,20}(\d{1,3})\s*(?:min|mins|minutes)?/i
-  )
-
-  if (minuteMatch) {
-    const value = Number(
-      minuteMatch[1]
+function detectBreak(
+  text: string
+) {
+  const minuteMatch =
+    text.match(
+      /(?:break|meal|lunch)[^0-9]{0,20}(\d{1,3})\s*(?:min|mins|minutes)?/i
     )
 
+  if (minuteMatch) {
+    const value =
+      Number(
+        minuteMatch[1]
+      )
+
     if (
-      !Number.isNaN(value) &&
+      !Number.isNaN(
+        value
+      ) &&
       value >= 0 &&
       value <= 180
     ) {
@@ -342,18 +528,21 @@ function detectBreak(text: string) {
     }
   }
 
-  const timeMatch = text.match(
-    /(\d{1,2})\s*:\s*(\d{2})\s*(?:break|meal|lunch)/i
-  )
+  const timeMatch =
+    text.match(
+      /(\d{1,2})\s*:\s*(\d{2})\s*(?:break|meal|lunch)/i
+    )
 
   if (timeMatch) {
-    const hours = Number(
-      timeMatch[1]
-    )
+    const hours =
+      Number(
+        timeMatch[1]
+      )
 
-    const minutes = Number(
-      timeMatch[2]
-    )
+    const minutes =
+      Number(
+        timeMatch[2]
+      )
 
     const total =
       hours * 60 +
@@ -374,16 +563,23 @@ function detectBreak(text: string) {
    PRINTED HOURS
 ====================================================== */
 
-function detectPrintedHours(text: string) {
+function detectPrintedHours(
+  text: string
+) {
   const patterns = [
     /daily\s*total\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
     /hours?\s*(?:worked)?\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
     /total\s*hours?\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
   ]
 
-  for (const pattern of patterns) {
+  for (
+    const pattern
+    of patterns
+  ) {
     const match =
-      text.match(pattern)
+      text.match(
+        pattern
+      )
 
     if (!match) {
       continue
@@ -395,7 +591,9 @@ function detectPrintedHours(text: string) {
       )
 
     if (
-      !Number.isNaN(value) &&
+      !Number.isNaN(
+        value
+      ) &&
       value >= 0 &&
       value <= 24
     ) {
@@ -440,7 +638,8 @@ function addCandidate(
   const duplicate =
     result.some(
       (row) =>
-        row.label === label &&
+        row.label ===
+          label &&
         row.clock_in ===
           normalizedStart &&
         row.clock_out ===
@@ -469,7 +668,8 @@ function addCandidate(
     ) / 60
 
   const needsReview =
-    printedHours !== null &&
+    printedHours !==
+      null &&
     Math.abs(
       calculatedHours -
         printedHours
@@ -477,21 +677,26 @@ function addCandidate(
 
   result.push({
     label,
+
     clock_in:
       normalizedStart,
+
     clock_out:
       normalizedEnd,
+
     break_minutes:
       breakMinutes,
+
     printed_hours:
       printedHours,
+
     needs_review:
       needsReview,
   })
 }
 
 /* ======================================================
-   BUILD SUNDAY → SATURDAY
+   BUILD WEEK
 ====================================================== */
 
 function buildWeeklyRows(
@@ -500,7 +705,10 @@ function buildWeeklyRows(
   const week =
     manualRows()
 
-  for (const row of detected) {
+  for (
+    const row
+    of detected
+  ) {
     const weekday =
       DAYS.find(
         (day) =>
@@ -519,7 +727,8 @@ function buildWeeklyRows(
 
     week[index] = {
       ...row,
-      label: weekday,
+      label:
+        weekday,
     }
   }
 
@@ -527,14 +736,17 @@ function buildWeeklyRows(
 }
 
 /* ======================================================
-   IMAGE LOADER
+   LOAD IMAGE
 ====================================================== */
 
 function loadImage(
   source: string
 ): Promise<HTMLImageElement> {
   return new Promise(
-    (resolve, reject) => {
+    (
+      resolve,
+      reject
+    ) => {
       const image =
         new Image()
 
@@ -548,13 +760,14 @@ function loadImage(
           )
         )
 
-      image.src = source
+      image.src =
+        source
     }
   )
 }
 
 /* ======================================================
-   CROP IMAGE
+   CROP + PREPROCESS
 ====================================================== */
 
 function cropImage(
@@ -601,6 +814,9 @@ function cropImage(
     )
   }
 
+  context.imageSmoothingEnabled =
+    true
+
   context.drawImage(
     image,
     x,
@@ -626,41 +842,41 @@ function cropImage(
 
   for (
     let index = 0;
-    index < pixels.length;
+    index <
+      pixels.length;
     index += 4
   ) {
     const gray =
       pixels[index] *
         0.299 +
-      pixels[index + 1] *
+      pixels[
+        index + 1
+      ] *
         0.587 +
-      pixels[index + 2] *
+      pixels[
+        index + 2
+      ] *
         0.114
 
-    let value =
-      gray
-
-    if (gray < 160) {
-      value =
-        Math.max(
-          0,
-          gray - 35
-        )
-    } else {
-      value =
-        Math.min(
-          255,
-          gray + 18
-        )
-    }
+    /*
+     * Strong black/white threshold.
+     */
+    const value =
+      gray < 190
+        ? 0
+        : 255
 
     pixels[index] =
       value
 
-    pixels[index + 1] =
+    pixels[
+      index + 1
+    ] =
       value
 
-    pixels[index + 2] =
+    pixels[
+      index + 2
+    ] =
       value
   }
 
@@ -692,7 +908,7 @@ function buildOcrRegions(
     image.height
 
   /*
-   * Full page
+   * Full page.
    */
   regions.push({
     label:
@@ -710,13 +926,14 @@ function buildOcrRegions(
   })
 
   /*
-   * Horizontal strips.
+   * Overlapping horizontal strips.
    */
   const stripHeight =
     Math.max(
       140,
       Math.round(
-        height * 0.16
+        height *
+          0.16
       )
     )
 
@@ -725,7 +942,7 @@ function buildOcrRegions(
       80,
       Math.round(
         stripHeight *
-          0.6
+          0.55
       )
     )
 
@@ -743,7 +960,8 @@ function buildOcrRegions(
       )
 
     if (
-      actualHeight < 70
+      actualHeight <
+      70
     ) {
       continue
     }
@@ -759,13 +977,13 @@ function buildOcrRegions(
           y,
           width,
           actualHeight,
-          2
+          2.4
         ),
     })
 
     /*
-     * Wide image:
-     * OCR left and right halves separately.
+     * Wide screenshots:
+     * split left/right.
      */
     if (
       width >= 850
@@ -786,7 +1004,7 @@ function buildOcrRegions(
             y,
             halfWidth,
             actualHeight,
-            2.2
+            2.6
           ),
       })
 
@@ -802,7 +1020,7 @@ function buildOcrRegions(
             width -
               halfWidth,
             actualHeight,
-            2.2
+            2.6
           ),
       })
     }
@@ -814,7 +1032,7 @@ function buildOcrRegions(
 }
 
 /* ======================================================
-   OCR CANVAS
+   TWO-PASS OCR
 ====================================================== */
 
 async function recognizeCanvas(
@@ -825,7 +1043,14 @@ async function recognizeCanvas(
       'tesseract.js'
     )
 
-  const result =
+  /*
+   * ================================================
+   * PASS 1
+   * General OCR for labels, days, dates.
+   * ================================================
+   */
+
+  const general =
     await Tesseract.recognize(
       canvas,
       'eng',
@@ -838,7 +1063,7 @@ async function recognizeCanvas(
             'recognizing text'
           ) {
             console.log(
-              'OCR:',
+              'General OCR:',
               Math.round(
                 (
                   progress.progress ||
@@ -852,14 +1077,67 @@ async function recognizeCanvas(
       }
     )
 
-  return (
-    result.data.text ||
-    ''
-  ).trim()
+  /*
+   * ================================================
+   * PASS 2
+   * Time/date-focused OCR.
+   * ================================================
+   */
+
+  const timeWorker =
+    await Tesseract.createWorker(
+      'eng'
+    )
+
+  try {
+    await timeWorker.setParameters({
+      tessedit_char_whitelist:
+        '0123456789:/.-AMPamp ',
+
+      preserve_interword_spaces:
+        '1',
+
+      user_defined_dpi:
+        '300',
+    })
+
+    const timeResult =
+      await timeWorker.recognize(
+        canvas
+      )
+
+    const generalText =
+      general.data.text ||
+      ''
+
+    const timeText =
+      timeResult.data.text ||
+      ''
+
+    console.log(
+      'GENERAL OCR:',
+      generalText
+    )
+
+    console.log(
+      'TIME OCR:',
+      timeText
+    )
+
+    return [
+      generalText,
+      timeText,
+    ]
+      .filter(Boolean)
+      .join('\n')
+      .trim()
+  } finally {
+    await timeWorker.terminate()
+  }
 }
 
 /* ======================================================
-   REMOVE DUPLICATE OCR TEXT
+   UNIQUE OCR BLOCKS
 ====================================================== */
 
 function uniqueOcrTexts(
@@ -884,7 +1162,8 @@ function uniqueOcrTexts(
         .trim()
 
     if (
-      cleaned.length < 3
+      cleaned.length <
+      3
     ) {
       continue
     }
@@ -931,7 +1210,8 @@ async function recognizeSegmentedPage(
 
   for (
     let index = 0;
-    index < regions.length;
+    index <
+      regions.length;
     index++
   ) {
     const region =
@@ -972,8 +1252,11 @@ async function recognizeSegmentedPage(
     /*
      * Release memory.
      */
-    region.canvas.width = 1
-    region.canvas.height = 1
+    region.canvas.width =
+      1
+
+    region.canvas.height =
+      1
   }
 
   return uniqueOcrTexts(
@@ -982,7 +1265,7 @@ async function recognizeSegmentedPage(
 }
 
 /* ======================================================
-   READ ALL PAGES
+   READ CONVERTED PAGES
 ====================================================== */
 
 async function readConvertedPages(
@@ -1011,9 +1294,6 @@ async function readConvertedPages(
       pages.length
     )
 
-    /*
-     * Prefer OCR image.
-     */
     const source =
       page.ocr_image ||
       page.table_image ||
@@ -1051,7 +1331,7 @@ async function readConvertedPages(
 }
 
 /* ======================================================
-   UNIVERSAL TIMECARD PARSER
+   UNIVERSAL PARSER
 ====================================================== */
 
 function parseUniversalTimecard(
@@ -1071,10 +1351,12 @@ function parseUniversalTimecard(
   const detected:
     DetectedShift[] = []
 
-  /* ==================================================
-     PASS 1
-     Parse individual OCR regions
-  ================================================== */
+  /*
+   * ================================================
+   * PASS 1
+   * Parse individual OCR regions.
+   * ================================================
+   */
 
   const regionMatches =
     cleaned.match(
@@ -1117,13 +1399,14 @@ function parseUniversalTimecard(
     )
 
     if (
-      times.length < 2
+      times.length <
+      2
     ) {
       continue
     }
 
     /*
-     * Try adjacent times.
+     * Test every adjacent pair.
      */
     for (
       let index = 0;
@@ -1161,10 +1444,12 @@ function parseUniversalTimecard(
     }
   }
 
-  /* ==================================================
-     PASS 2
-     Normal OCR lines
-  ================================================== */
+  /*
+   * ================================================
+   * PASS 2
+   * Normal individual lines.
+   * ================================================
+   */
 
   const lines =
     cleaned
@@ -1181,7 +1466,9 @@ function parseUniversalTimecard(
         (line) =>
           line.trim()
       )
-      .filter(Boolean)
+      .filter(
+        Boolean
+      )
 
   for (
     const line
@@ -1193,7 +1480,8 @@ function parseUniversalTimecard(
       )
 
     if (
-      times.length < 2
+      times.length <
+      2
     ) {
       continue
     }
@@ -1202,25 +1490,44 @@ function parseUniversalTimecard(
       let index = 0;
       index + 1 <
         times.length;
-      index += 2
+      index++
     ) {
-      addCandidate(
-        detected,
-        line,
+      const start =
         times[
           index
-        ],
+        ]
+
+      const end =
         times[
           index + 1
         ]
+
+      if (
+        !isPlausibleShift(
+          start,
+          end
+        )
+      ) {
+        continue
+      }
+
+      addCandidate(
+        detected,
+        line,
+        start,
+        end
       )
+
+      break
     }
   }
 
-  /* ==================================================
-     PASS 3
-     Nearby lines containing day/date
-  ================================================== */
+  /*
+   * ================================================
+   * PASS 3
+   * Nearby lines with day/date.
+   * ================================================
+   */
 
   for (
     let index = 0;
@@ -1232,7 +1539,7 @@ function parseUniversalTimecard(
       lines
         .slice(
           index,
-          index + 6
+          index + 7
         )
         .join(' ')
 
@@ -1259,7 +1566,8 @@ function parseUniversalTimecard(
       )
 
     if (
-      times.length < 2
+      times.length <
+      2
     ) {
       continue
     }
@@ -1329,8 +1637,11 @@ async function convertUploadedDocument(
     await fetch(
       `${API}/convert-timecard`,
       {
-        method: 'POST',
-        body: form,
+        method:
+          'POST',
+
+        body:
+          form,
       }
     )
 
@@ -1345,7 +1656,9 @@ async function convertUploadedDocument(
     )
   }
 
-  if (!response.ok) {
+  if (
+    !response.ok
+  ) {
     throw new Error(
       data?.detail ||
         'Could not prepare this document.'
@@ -1397,19 +1710,25 @@ export default function Home() {
     submitted,
     setSubmitted,
   ] =
-    useState(false)
+    useState(
+      false
+    )
 
   const [
     message,
     setMessage,
   ] =
-    useState('')
+    useState(
+      ''
+    )
 
   const [
     readingFile,
     setReadingFile,
   ] =
-    useState(false)
+    useState(
+      false
+    )
 
   const fileRef =
     useRef<HTMLInputElement>(
@@ -1532,14 +1851,18 @@ export default function Home() {
     useMemo(
       () =>
         rows.map(
-          (row) =>
+          (
+            row
+          ) =>
             getShiftMinutes(
               row.clock_in,
               row.clock_out,
               row.break_minutes
             )
         ),
-      [rows]
+      [
+        rows,
+      ]
     )
 
   const totalMinutes =
@@ -1554,7 +1877,9 @@ export default function Home() {
             value,
           0
         ),
-      [workedMinutes]
+      [
+        workedMinutes,
+      ]
     )
 
   /* ======================================================
@@ -1568,7 +1893,9 @@ export default function Home() {
     value: any
   ) {
     setRows(
-      (current) =>
+      (
+        current
+      ) =>
         current.map(
           (
             row,
@@ -1591,7 +1918,7 @@ export default function Home() {
   }
 
   /* ======================================================
-     MANUAL MODE
+     MANUAL
   ====================================================== */
 
   function startManual() {
@@ -1607,7 +1934,9 @@ export default function Home() {
       false
     )
 
-    setMessage('')
+    setMessage(
+      ''
+    )
 
     setTimeout(
       () => {
@@ -1713,7 +2042,9 @@ export default function Home() {
 
       const detectedCount =
         detected.filter(
-          (row) =>
+          (
+            row
+          ) =>
             row.clock_in &&
             row.clock_out
         ).length
@@ -1751,7 +2082,9 @@ export default function Home() {
 
       const reviewCount =
         detected.filter(
-          (row) =>
+          (
+            row
+          ) =>
             row.clock_in &&
             row.clock_out &&
             row.needs_review
@@ -1821,13 +2154,15 @@ export default function Home() {
   }
 
   /* ======================================================
-     MANUAL CALCULATE
+     CALCULATE MANUAL
   ====================================================== */
 
   function calculateManual() {
     const completeRows =
       rows.filter(
-        (row) =>
+        (
+          row
+        ) =>
           row.clock_in.trim() &&
           row.clock_out.trim()
       )
@@ -1844,14 +2179,18 @@ export default function Home() {
 
     const invalid =
       completeRows.find(
-        (row) =>
+        (
+          row
+        ) =>
           !isPlausibleShift(
             row.clock_in,
             row.clock_out
           )
       )
 
-    if (invalid) {
+    if (
+      invalid
+    ) {
       setMessage(
         `Please check ${invalid.label}. The start and end times do not form a valid shift.`
       )
@@ -1859,8 +2198,13 @@ export default function Home() {
       return
     }
 
-    setMessage('')
-    setSubmitted(true)
+    setMessage(
+      ''
+    )
+
+    setSubmitted(
+      true
+    )
   }
 
   /* ======================================================
@@ -1880,15 +2224,33 @@ export default function Home() {
       false
     )
 
-    setMessage('')
+    setMessage(
+      ''
+    )
 
-    setEmployeeName('')
-    setEmployeeId('')
-    setManager('')
-    setDepartment('')
+    setEmployeeName(
+      ''
+    )
 
-    setHourlyRate('')
-    setCurrency('$')
+    setEmployeeId(
+      ''
+    )
+
+    setManager(
+      ''
+    )
+
+    setDepartment(
+      ''
+    )
+
+    setHourlyRate(
+      ''
+    )
+
+    setCurrency(
+      '$'
+    )
 
     setStandardWeeklyHours(
       '40'
@@ -1906,14 +2268,21 @@ export default function Home() {
       '1.5'
     )
 
-    setWeekStartDate('')
-    setWeekEndDate('')
+    setWeekStartDate(
+      ''
+    )
+
+    setWeekEndDate(
+      ''
+    )
 
     setPayPeriod(
       'weekly'
     )
 
-    setNotes('')
+    setNotes(
+      ''
+    )
 
     if (
       fileRef.current
@@ -1926,9 +2295,7 @@ export default function Home() {
   return (
     <main className="pageShell">
 
-      {/* ==================================================
-          HERO
-      ================================================== */}
+      {/* HERO */}
 
       <section className="pageHero">
 
@@ -1981,7 +2348,9 @@ export default function Home() {
           </button>
 
           <input
-            ref={fileRef}
+            ref={
+              fileRef
+            }
             hidden
             type="file"
             accept=".pdf,.jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff"
@@ -1995,11 +2364,10 @@ export default function Home() {
           />
 
         </div>
+
       </section>
 
-      {/* ==================================================
-          CALCULATOR
-      ================================================== */}
+      {/* CALCULATOR */}
 
       <section
         className="calculatorCard"
@@ -2026,9 +2394,7 @@ export default function Home() {
           </div>
         )}
 
-        {/* ==================================================
-            TIME TABLE
-        ================================================== */}
+        {/* TIME TABLE */}
 
         <div className="timeTable">
 
@@ -2135,7 +2501,6 @@ export default function Home() {
                 </div>
 
                 <div className="dailyHours">
-
                   {row.clock_in &&
                   row.clock_out
                     ? hoursMinutes(
@@ -2144,7 +2509,6 @@ export default function Home() {
                         ]
                       )
                     : '—'}
-
                 </div>
 
               </div>
@@ -2153,9 +2517,7 @@ export default function Home() {
 
         </div>
 
-        {/* ==================================================
-            EMPLOYEE DETAILS
-        ================================================== */}
+        {/* EMPLOYEE DETAILS */}
 
         <div className="employeeDetailsSection">
 
@@ -2261,9 +2623,7 @@ export default function Home() {
 
           </div>
 
-          {/* ==================================================
-              PAY
-          ================================================== */}
+          {/* PAY */}
 
           <div className="detailsSubSection">
 
@@ -2284,7 +2644,6 @@ export default function Home() {
             <div className="payConfigurationGrid">
 
               <label>
-
                 <span>
                   Hourly Rate
                 </span>
@@ -2305,11 +2664,9 @@ export default function Home() {
                     )
                   }
                 />
-
               </label>
 
               <label>
-
                 <span>
                   Currency
                 </span>
@@ -2346,11 +2703,9 @@ export default function Home() {
                     A$ AUD
                   </option>
                 </select>
-
               </label>
 
               <label>
-
                 <span>
                   Standard Weekly Hours
                 </span>
@@ -2370,11 +2725,9 @@ export default function Home() {
                     )
                   }
                 />
-
               </label>
 
               <label>
-
                 <span>
                   Standard Daily Hours
                 </span>
@@ -2394,11 +2747,9 @@ export default function Home() {
                     )
                   }
                 />
-
               </label>
 
               <label>
-
                 <span>
                   Overtime Rule
                 </span>
@@ -2430,11 +2781,9 @@ export default function Home() {
                     Daily Overtime
                   </option>
                 </select>
-
               </label>
 
               <label>
-
                 <span>
                   Overtime Multiplier
                 </span>
@@ -2458,15 +2807,13 @@ export default function Home() {
                     )
                   }
                 />
-
               </label>
 
             </div>
+
           </div>
 
-          {/* ==================================================
-              PAY PERIOD
-          ================================================== */}
+          {/* PAY PERIOD */}
 
           <div className="detailsSubSection">
 
@@ -2487,7 +2834,6 @@ export default function Home() {
             <div className="payPeriodGrid">
 
               <label>
-
                 <span>
                   Week Start Date
                 </span>
@@ -2505,11 +2851,9 @@ export default function Home() {
                     )
                   }
                 />
-
               </label>
 
               <label>
-
                 <span>
                   Week End Date
                 </span>
@@ -2527,11 +2871,9 @@ export default function Home() {
                     )
                   }
                 />
-
               </label>
 
               <label>
-
                 <span>
                   Pay Period
                 </span>
@@ -2551,7 +2893,6 @@ export default function Home() {
                     )
                   }
                 >
-
                   <option value="weekly">
                     Weekly
                   </option>
@@ -2563,17 +2904,14 @@ export default function Home() {
                   <option value="semimonthly">
                     Semi-monthly
                   </option>
-
                 </select>
-
               </label>
 
             </div>
+
           </div>
 
-          {/* ==================================================
-              NOTES
-          ================================================== */}
+          {/* NOTES */}
 
           <div className="detailsSubSection">
 
@@ -2604,9 +2942,7 @@ export default function Home() {
 
         </div>
 
-        {/* ==================================================
-            ACTIONS
-        ================================================== */}
+        {/* ACTIONS */}
 
         <div className="calculatorActions">
 
@@ -2635,9 +2971,7 @@ export default function Home() {
 
       </section>
 
-      {/* ==================================================
-          RESULTS
-      ================================================== */}
+      {/* RESULTS */}
 
       {submitted && (
         <section
