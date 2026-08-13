@@ -70,29 +70,46 @@ function normalizeTime(value: string) {
   return text
 }
 
-function parseTime(value: string): number | null {
+function parseTime(
+  value: string
+): number | null {
   if (!value?.trim()) {
     return null
   }
 
-  let text = normalizeTime(value)
+  let text =
+    normalizeTime(value)
+
   let meridiem = ''
 
-  const meridiemMatch = text.match(/(AM|PM)$/)
+  const meridiemMatch =
+    text.match(/(AM|PM)$/)
 
   if (meridiemMatch) {
-    meridiem = meridiemMatch[1]
-    text = text.replace(/(AM|PM)$/, '')
+    meridiem =
+      meridiemMatch[1]
+
+    text =
+      text.replace(
+        /(AM|PM)$/,
+        ''
+      )
   }
 
-  const match = text.match(/^(\d{1,2}):(\d{2})$/)
+  const match =
+    text.match(
+      /^(\d{1,2}):(\d{2})$/
+    )
 
   if (!match) {
     return null
   }
 
-  let hours = Number(match[1])
-  const minutes = Number(match[2])
+  let hours =
+    Number(match[1])
+
+  const minutes =
+    Number(match[2])
 
   if (
     Number.isNaN(hours) ||
@@ -104,7 +121,10 @@ function parseTime(value: string): number | null {
   }
 
   if (meridiem) {
-    if (hours < 1 || hours > 12) {
+    if (
+      hours < 1 ||
+      hours > 12
+    ) {
       return null
     }
 
@@ -112,14 +132,21 @@ function parseTime(value: string): number | null {
       hours = 0
     }
 
-    if (meridiem === 'PM') {
+    if (
+      meridiem === 'PM'
+    ) {
       hours += 12
     }
-  } else if (hours > 23) {
+  } else if (
+    hours > 23
+  ) {
     return null
   }
 
-  return hours * 60 + minutes
+  return (
+    hours * 60 +
+    minutes
+  )
 }
 
 function getShiftMinutes(
@@ -127,64 +154,103 @@ function getShiftMinutes(
   clockOut: string,
   breakMinutes = 0
 ) {
-  const start = parseTime(clockIn)
-  const end = parseTime(clockOut)
+  const start =
+    parseTime(clockIn)
 
-  if (start === null || end === null) {
+  const end =
+    parseTime(clockOut)
+
+  if (
+    start === null ||
+    end === null
+  ) {
     return 0
   }
 
-  let duration = end - start
+  let duration =
+    end - start
 
   if (duration < 0) {
-    duration += 24 * 60
+    duration +=
+      24 * 60
   }
 
   duration -= Math.max(
     0,
-    Number(breakMinutes || 0)
+    Number(
+      breakMinutes || 0
+    )
   )
 
-  return Math.max(0, duration)
+  return Math.max(
+    0,
+    duration
+  )
 }
 
 function isPlausibleShift(
   clockIn: string,
   clockOut: string
 ) {
-  const start = parseTime(clockIn)
-  const end = parseTime(clockOut)
+  const start =
+    parseTime(clockIn)
 
-  if (start === null || end === null) {
+  const end =
+    parseTime(clockOut)
+
+  if (
+    start === null ||
+    end === null
+  ) {
     return false
   }
 
-  let duration = end - start
+  let duration =
+    end - start
 
   if (duration < 0) {
-    duration += 24 * 60
+    duration +=
+      24 * 60
   }
 
-  if (duration < 15) {
+  if (
+    duration < 15
+  ) {
     return false
   }
 
-  if (duration > 20 * 60) {
+  if (
+    duration >
+    20 * 60
+  ) {
     return false
   }
 
   return true
 }
 
-function decimalHours(minutes: number) {
-  return (minutes / 60).toFixed(2)
+function decimalHours(
+  minutes: number
+) {
+  return (
+    minutes / 60
+  ).toFixed(2)
 }
 
-function hoursMinutes(minutes: number) {
-  const hours = Math.floor(minutes / 60)
-  const mins = minutes % 60
+function hoursMinutes(
+  minutes: number
+) {
+  const hours =
+    Math.floor(
+      minutes / 60
+    )
 
-  return `${hours}:${String(mins).padStart(2, '0')}`
+  const mins =
+    minutes % 60
+
+  return `${hours}:${String(
+    mins
+  ).padStart(2, '0')}`
 }
 
 /* ======================================================
@@ -194,30 +260,40 @@ function hoursMinutes(minutes: number) {
 function dateToWeekday(
   dateText: string
 ): string | null {
-  const match = dateText.match(
-    /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/
-  )
+  const match =
+    dateText.match(
+      /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/
+    )
 
   if (!match) {
     return null
   }
 
-  const month = Number(match[1])
-  const day = Number(match[2])
+  const month =
+    Number(match[1])
 
-  let year = Number(match[3])
+  const day =
+    Number(match[2])
+
+  let year =
+    Number(match[3])
 
   if (year < 100) {
     year += 2000
   }
 
-  const date = new Date(
-    year,
-    month - 1,
-    day
-  )
+  const date =
+    new Date(
+      year,
+      month - 1,
+      day
+    )
 
-  if (Number.isNaN(date.getTime())) {
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
     return null
   }
 
@@ -225,11 +301,14 @@ function dateToWeekday(
     date.toLocaleDateString(
       'en-US',
       {
-        weekday: 'long',
+        weekday:
+          'long',
       }
     )
 
-  return DAYS.includes(weekday)
+  return DAYS.includes(
+    weekday
+  )
     ? weekday
     : null
 }
@@ -238,46 +317,74 @@ function dateToWeekday(
    OCR HELPERS
 ====================================================== */
 
-function normalizeDay(value: string) {
+function normalizeDay(
+  value: string
+) {
   const day =
     value.toLowerCase()
 
-  if (day.startsWith('sun')) {
+  if (
+    day.startsWith('sun')
+  ) {
     return 'Sunday'
   }
 
-  if (day.startsWith('mon')) {
+  if (
+    day.startsWith('mon')
+  ) {
     return 'Monday'
   }
 
-  if (day.startsWith('tue')) {
+  if (
+    day.startsWith('tue')
+  ) {
     return 'Tuesday'
   }
 
-  if (day.startsWith('wed')) {
+  if (
+    day.startsWith('wed')
+  ) {
     return 'Wednesday'
   }
 
-  if (day.startsWith('thu')) {
+  if (
+    day.startsWith('thu')
+  ) {
     return 'Thursday'
   }
 
-  if (day.startsWith('fri')) {
+  if (
+    day.startsWith('fri')
+  ) {
     return 'Friday'
   }
 
-  if (day.startsWith('sat')) {
+  if (
+    day.startsWith('sat')
+  ) {
     return 'Saturday'
   }
 
   return value
 }
 
-function findTimes(text: string) {
-  const cleaned = text
-    .replace(/[Oo]/g, '0')
-    .replace(/[Il]/g, '1')
-    .replace(/[–—−]/g, '-')
+function findTimes(
+  text: string
+) {
+  const cleaned =
+    text
+      .replace(
+        /[Oo]/g,
+        '0'
+      )
+      .replace(
+        /[Il]/g,
+        '1'
+      )
+      .replace(
+        /[–—−]/g,
+        '-'
+      )
 
   const matches =
     cleaned.match(
@@ -285,10 +392,14 @@ function findTimes(text: string) {
     ) || []
 
   return matches
-    .map(normalizeTime)
+    .map(
+      normalizeTime
+    )
     .filter(
       (time) =>
-        parseTime(time) !== null
+        parseTime(
+          time
+        ) !== null
     )
 }
 
@@ -296,9 +407,10 @@ function detectLabel(
   text: string,
   index: number
 ) {
-  const dayMatch = text.match(
-    /\b(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sun|Mon|Tue|Tues|Wed|Thu|Thur|Thurs|Fri|Sat)\b/i
-  )
+  const dayMatch =
+    text.match(
+      /\b(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sun|Mon|Tue|Tues|Wed|Thu|Thur|Thurs|Fri|Sat)\b/i
+    )
 
   if (dayMatch) {
     return normalizeDay(
@@ -306,9 +418,10 @@ function detectLabel(
     )
   }
 
-  const dateMatch = text.match(
-    /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/
-  )
+  const dateMatch =
+    text.match(
+      /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/
+    )
 
   if (dateMatch) {
     const weekday =
@@ -321,13 +434,18 @@ function detectLabel(
     }
   }
 
-  return `Shift ${index + 1}`
+  return `Shift ${
+    index + 1
+  }`
 }
 
-function detectBreak(text: string) {
-  const minuteMatch = text.match(
-    /(?:break|meal|lunch)[^0-9]{0,20}(\d{1,3})\s*(?:min|mins|minutes)?/i
-  )
+function detectBreak(
+  text: string
+) {
+  const minuteMatch =
+    text.match(
+      /(?:break|meal|lunch)[^0-9]{0,20}(\d{1,3})\s*(?:min|mins|minutes)?/i
+    )
 
   if (minuteMatch) {
     const value =
@@ -336,7 +454,9 @@ function detectBreak(text: string) {
       )
 
     if (
-      !Number.isNaN(value) &&
+      !Number.isNaN(
+        value
+      ) &&
       value >= 0 &&
       value <= 180
     ) {
@@ -344,9 +464,10 @@ function detectBreak(text: string) {
     }
   }
 
-  const timeMatch = text.match(
-    /(\d{1,2})\s*:\s*(\d{2})\s*(?:break|meal|lunch)/i
-  )
+  const timeMatch =
+    text.match(
+      /(\d{1,2})\s*:\s*(\d{2})\s*(?:break|meal|lunch)/i
+    )
 
   if (timeMatch) {
     const hours =
@@ -374,16 +495,23 @@ function detectBreak(text: string) {
   return 0
 }
 
-function detectPrintedHours(text: string) {
+function detectPrintedHours(
+  text: string
+) {
   const patterns = [
     /daily\s*total\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
     /hours?\s*(?:worked)?\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
     /total\s*hours?\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
   ]
 
-  for (const pattern of patterns) {
+  for (
+    const pattern
+    of patterns
+  ) {
     const match =
-      text.match(pattern)
+      text.match(
+        pattern
+      )
 
     if (!match) {
       continue
@@ -395,7 +523,9 @@ function detectPrintedHours(text: string) {
       )
 
     if (
-      !Number.isNaN(value) &&
+      !Number.isNaN(
+        value
+      ) &&
       value >= 0 &&
       value <= 24
     ) {
@@ -436,7 +566,8 @@ function addCandidate(
   const duplicate =
     result.some(
       (row) =>
-        row.label === label &&
+        row.label ===
+          label &&
         row.clock_in ===
           normalizedStart &&
         row.clock_out ===
@@ -465,7 +596,8 @@ function addCandidate(
     ) / 60
 
   const needsReview =
-    printedHours !== null &&
+    printedHours !==
+      null &&
     Math.abs(
       calculatedHours -
         printedHours
@@ -473,21 +605,26 @@ function addCandidate(
 
   result.push({
     label,
+
     clock_in:
       normalizedStart,
+
     clock_out:
       normalizedEnd,
+
     break_minutes:
       breakMinutes,
+
     printed_hours:
       printedHours,
+
     needs_review:
       needsReview,
   })
 }
 
 /* ======================================================
-   SUNDAY → SATURDAY WEEK
+   BUILD SUNDAY → SATURDAY WEEK
 ====================================================== */
 
 function buildWeeklyRows(
@@ -497,7 +634,8 @@ function buildWeeklyRows(
     manualRows()
 
   for (
-    const row of detected
+    const row
+    of detected
   ) {
     const weekday =
       DAYS.find(
@@ -531,25 +669,35 @@ function buildWeeklyRows(
 function parseUniversalTimecard(
   text: string
 ) {
-  const cleaned = text
-    .replace(/\r/g, '\n')
-    .replace(/[–—−]/g, '-')
+  const cleaned =
+    text
+      .replace(
+        /\r/g,
+        '\n'
+      )
+      .replace(
+        /[–—−]/g,
+        '-'
+      )
 
-  const lines = cleaned
-    .split('\n')
-    .map(
-      (line) =>
-        line.trim()
-    )
-    .filter(Boolean)
+  const lines =
+    cleaned
+      .split('\n')
+      .map(
+        (line) =>
+          line.trim()
+      )
+      .filter(
+        Boolean
+      )
 
   const detected:
     DetectedShift[] = []
 
   /* PASS 1 */
-
   for (
-    const line of lines
+    const line
+    of lines
   ) {
     const times =
       findTimes(line)
@@ -563,31 +711,34 @@ function parseUniversalTimecard(
     for (
       let index = 0;
       index + 1 <
-      times.length;
+        times.length;
       index += 2
     ) {
       addCandidate(
         detected,
         line,
         times[index],
-        times[index + 1]
+        times[
+          index + 1
+        ]
       )
     }
   }
 
-  /* PASS 2 — ALWAYS RUN */
-
+  /* PASS 2 - always run */
   for (
     let index = 0;
-    index < lines.length;
+    index <
+      lines.length;
     index++
   ) {
-    const block = lines
-      .slice(
-        index,
-        index + 6
-      )
-      .join(' ')
+    const block =
+      lines
+        .slice(
+          index,
+          index + 6
+        )
+        .join(' ')
 
     const hasDay =
       /\b(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sun|Mon|Tue|Tues|Wed|Thu|Thur|Thurs|Fri|Sat)\b/i.test(
@@ -618,22 +769,26 @@ function parseUniversalTimecard(
     for (
       let timeIndex = 0;
       timeIndex + 1 <
-      times.length;
+        times.length;
       timeIndex += 2
     ) {
       addCandidate(
         detected,
         block,
-        times[timeIndex],
-        times[timeIndex + 1]
+        times[
+          timeIndex
+        ],
+        times[
+          timeIndex + 1
+        ]
       )
     }
   }
 
-  /* PASS 3 FALLBACK */
-
+  /* PASS 3 */
   if (
-    detected.length === 0
+    detected.length ===
+    0
   ) {
     const allTimes =
       findTimes(
@@ -643,14 +798,18 @@ function parseUniversalTimecard(
     for (
       let index = 0;
       index + 1 <
-      allTimes.length;
+        allTimes.length;
       index += 2
     ) {
       addCandidate(
         detected,
         '',
-        allTimes[index],
-        allTimes[index + 1]
+        allTimes[
+          index
+        ],
+        allTimes[
+          index + 1
+        ]
       )
     }
   }
@@ -666,7 +825,9 @@ function parseUniversalTimecard(
 
 async function convertUploadedDocument(
   file: File
-): Promise<ConvertedPage[]> {
+): Promise<
+  ConvertedPage[]
+> {
   const form =
     new FormData()
 
@@ -679,7 +840,8 @@ async function convertUploadedDocument(
     await fetch(
       `${API}/convert-timecard`,
       {
-        method: 'POST',
+        method:
+          'POST',
         body: form,
       }
     )
@@ -695,7 +857,9 @@ async function convertUploadedDocument(
     )
   }
 
-  if (!response.ok) {
+  if (
+    !response.ok
+  ) {
     throw new Error(
       data?.detail ||
         'Could not prepare this document.'
@@ -706,7 +870,8 @@ async function convertUploadedDocument(
     !Array.isArray(
       data.pages
     ) ||
-    data.pages.length === 0
+    data.pages.length ===
+      0
   ) {
     throw new Error(
       'The document was converted, but no pages were returned.'
@@ -750,6 +915,10 @@ async function recognizeConvertedPage(
   )
 }
 
+/* ======================================================
+   OCR ALL IMAGE VERSIONS
+====================================================== */
+
 async function readConvertedPages(
   pages: ConvertedPage[],
   onProgress?: (
@@ -761,7 +930,8 @@ async function readConvertedPages(
 
   for (
     let index = 0;
-    index < pages.length;
+    index <
+      pages.length;
     index++
   ) {
     onProgress?.(
@@ -772,21 +942,58 @@ async function readConvertedPages(
     const page =
       pages[index]
 
-    const preferredImage =
-      page.table_image ||
-      page.ocr_image ||
-      page.image
+    const images = [
+      page.table_image,
+      page.ocr_image,
+      page.image,
+    ].filter(
+      (
+        value
+      ): value is string =>
+        Boolean(value)
+    )
 
-    const pageText =
-      await recognizeConvertedPage(
-        preferredImage
-      )
+    const pageTexts:
+      string[] = []
+
+    for (
+      const image
+      of images
+    ) {
+      try {
+        const text =
+          await recognizeConvertedPage(
+            image
+          )
+
+        if (
+          text &&
+          text.trim()
+        ) {
+          pageTexts.push(
+            text.trim()
+          )
+        }
+      } catch (
+        error
+      ) {
+        console.warn(
+          'OCR version failed:',
+          error
+        )
+      }
+    }
 
     fullText +=
-      `\n${pageText}`
+      '\n' +
+      pageTexts.join(
+        '\n'
+      )
   }
 
-  return fullText.trim()
+  return (
+    fullText.trim()
+  )
 }
 
 /* ======================================================
@@ -834,53 +1041,61 @@ export default function Home() {
     useState(false)
 
   const fileRef =
-    useRef<HTMLInputElement>(
-      null
-    )
+    useRef<
+      HTMLInputElement
+    >(null)
 
   /* EMPLOYEE */
 
   const [
     employeeName,
     setEmployeeName,
-  ] = useState('')
+  ] =
+    useState('')
 
   const [
     employeeId,
     setEmployeeId,
-  ] = useState('')
+  ] =
+    useState('')
 
   const [
     manager,
     setManager,
-  ] = useState('')
+  ] =
+    useState('')
 
   const [
     department,
     setDepartment,
-  ] = useState('')
+  ] =
+    useState('')
 
   /* PAY */
 
   const [
     hourlyRate,
     setHourlyRate,
-  ] = useState('')
+  ] =
+    useState('')
 
   const [
     currency,
     setCurrency,
-  ] = useState('$')
+  ] =
+    useState('$')
 
   const [
     standardWeeklyHours,
     setStandardWeeklyHours,
-  ] = useState('40')
+  ] =
+    useState('40')
 
   const [
     standardDailyHours,
     setStandardDailyHours,
-  ] = useState('8')
+  ] =
+    useState('8')
 
   const [
     overtimeRule,
@@ -897,19 +1112,22 @@ export default function Home() {
   const [
     overtimeMultiplier,
     setOvertimeMultiplier,
-  ] = useState('1.5')
+  ] =
+    useState('1.5')
 
   /* PAY PERIOD */
 
   const [
     weekStartDate,
     setWeekStartDate,
-  ] = useState('')
+  ] =
+    useState('')
 
   const [
     weekEndDate,
     setWeekEndDate,
-  ] = useState('')
+  ] =
+    useState('')
 
   const [
     payPeriod,
@@ -926,7 +1144,8 @@ export default function Home() {
   const [
     notes,
     setNotes,
-  ] = useState('')
+  ] =
+    useState('')
 
   /* ======================================================
      TOTALS
@@ -961,10 +1180,6 @@ export default function Home() {
       [workedMinutes]
     )
 
-  /* ======================================================
-     UPDATE ROW
-  ====================================================== */
-
   function updateRow(
     index: number,
     key:
@@ -978,7 +1193,8 @@ export default function Home() {
             row,
             rowIndex
           ) =>
-            rowIndex === index
+            rowIndex ===
+            index
               ? {
                   ...row,
                   [key]:
@@ -992,10 +1208,6 @@ export default function Home() {
       false
     )
   }
-
-  /* ======================================================
-     MANUAL
-  ====================================================== */
 
   function startManual() {
     setRows(
@@ -1011,20 +1223,6 @@ export default function Home() {
     )
 
     setMessage('')
-
-    setTimeout(
-      () => {
-        document
-          .getElementById(
-            'calculator'
-          )
-          ?.scrollIntoView({
-            behavior:
-              'smooth',
-          })
-      },
-      50
-    )
   }
 
   /* ======================================================
@@ -1080,6 +1278,16 @@ export default function Home() {
       console.log(
         'FULL OCR TEXT:',
         text
+      )
+
+      console.log(
+        'OCR LENGTH:',
+        text.length
+      )
+
+      console.log(
+        'OCR TIMES:',
+        findTimes(text)
       )
 
       if (
@@ -1299,8 +1507,6 @@ export default function Home() {
   return (
     <main className="pageShell">
 
-      {/* HERO */}
-
       <section className="pageHero">
 
         <div className="heroBadge">
@@ -1369,8 +1575,6 @@ export default function Home() {
 
       </section>
 
-      {/* CALCULATOR */}
-
       <section
         className="calculatorCard"
         id="calculator"
@@ -1395,8 +1599,6 @@ export default function Home() {
             {message}
           </div>
         )}
-
-        {/* TIME TABLE */}
 
         <div className="timeTable">
 
@@ -1517,13 +1719,10 @@ export default function Home() {
 
         </div>
 
-        {/* EMPLOYEE DETAILS */}
-
         <div className="employeeDetailsSection">
 
           <div className="detailsSectionHeader">
             <div>
-
               <span className="detailsSectionLabel">
                 EMPLOYEE INFORMATION
               </span>
@@ -1531,7 +1730,6 @@ export default function Home() {
               <h3>
                 Employee Details
               </h3>
-
             </div>
           </div>
 
@@ -1623,13 +1821,10 @@ export default function Home() {
 
           </div>
 
-          {/* PAY */}
-
           <div className="detailsSubSection">
 
             <div className="detailsSectionHeader">
               <div>
-
                 <span className="detailsSectionLabel">
                   PAY & OVERTIME
                 </span>
@@ -1637,7 +1832,6 @@ export default function Home() {
                 <h3>
                   Pay Configuration
                 </h3>
-
               </div>
             </div>
 
@@ -1813,13 +2007,10 @@ export default function Home() {
 
           </div>
 
-          {/* PAY PERIOD */}
-
           <div className="detailsSubSection">
 
             <div className="detailsSectionHeader">
               <div>
-
                 <span className="detailsSectionLabel">
                   PAY PERIOD
                 </span>
@@ -1827,7 +2018,6 @@ export default function Home() {
                 <h3>
                   Period Details
                 </h3>
-
               </div>
             </div>
 
@@ -1911,8 +2101,6 @@ export default function Home() {
 
           </div>
 
-          {/* NOTES */}
-
           <div className="detailsSubSection">
 
             <label className="notesField">
@@ -1922,10 +2110,10 @@ export default function Home() {
               </span>
 
               <textarea
+                rows={4}
                 value={
                   notes
                 }
-                rows={4}
                 placeholder="Optional payroll notes, corrections, PTO, holiday, training, or other comments."
                 onChange={(
                   event
@@ -1941,8 +2129,6 @@ export default function Home() {
           </div>
 
         </div>
-
-        {/* ACTIONS */}
 
         <div className="calculatorActions">
 
@@ -1971,8 +2157,6 @@ export default function Home() {
 
       </section>
 
-      {/* RESULTS */}
-
       {submitted && (
         <section
           className="resultsCard"
@@ -1982,7 +2166,6 @@ export default function Home() {
           <div className="resultsHeading">
 
             <div>
-
               <span>
                 WORK HOURS SUMMARY
               </span>
@@ -1990,7 +2173,6 @@ export default function Home() {
               <h2>
                 Calculated Results
               </h2>
-
             </div>
 
             <div className="totalHoursBox">
@@ -2103,7 +2285,6 @@ export default function Home() {
           <div className="resultsFooter">
 
             <div>
-
               <small>
                 Total Weekly Hours
               </small>
@@ -2120,7 +2301,6 @@ export default function Home() {
                 )}{' '}
                 decimal hours
               </span>
-
             </div>
 
             <button
