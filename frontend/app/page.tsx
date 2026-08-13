@@ -16,11 +16,14 @@ type ConvertedPage = {
   width: number
   height: number
   image: string
+  ocr_image?: string
+  table_image?: string
 }
 
-const API =
+const API = (
   process.env.NEXT_PUBLIC_API_URL ||
   'https://timecard-calculator-api.onrender.com'
+).replace(/\/+$/, '')
 
 const DAYS = [
   'Monday',
@@ -135,7 +138,6 @@ function getShiftMinutes(
 
   let duration = end - start
 
-  // Overnight shift
   if (duration < 0) {
     duration += 24 * 60
   }
@@ -165,13 +167,10 @@ function isPlausibleShift(
     duration += 24 * 60
   }
 
-  // Avoid status-bar timestamps and OCR noise.
   if (duration < 15) {
     return false
   }
 
-  // Allow long healthcare / overnight shifts,
-  // but reject impossible near-24-hour pairings.
   if (duration > 20 * 60) {
     return false
   }
@@ -215,42 +214,19 @@ function findTimes(text: string) {
 
   return matches
     .map(normalizeTime)
-    .filter(
-      (time) =>
-        parseTime(time) !== null
-    )
+    .filter((time) => parseTime(time) !== null)
 }
 
 function normalizeDay(value: string) {
   const day = value.toLowerCase()
 
-  if (day.startsWith('mon')) {
-    return 'Monday'
-  }
-
-  if (day.startsWith('tue')) {
-    return 'Tuesday'
-  }
-
-  if (day.startsWith('wed')) {
-    return 'Wednesday'
-  }
-
-  if (day.startsWith('thu')) {
-    return 'Thursday'
-  }
-
-  if (day.startsWith('fri')) {
-    return 'Friday'
-  }
-
-  if (day.startsWith('sat')) {
-    return 'Saturday'
-  }
-
-  if (day.startsWith('sun')) {
-    return 'Sunday'
-  }
+  if (day.startsWith('mon')) return 'Monday'
+  if (day.startsWith('tue')) return 'Tuesday'
+  if (day.startsWith('wed')) return 'Wednesday'
+  if (day.startsWith('thu')) return 'Thursday'
+  if (day.startsWith('fri')) return 'Friday'
+  if (day.startsWith('sat')) return 'Saturday'
+  if (day.startsWith('sun')) return 'Sunday'
 
   return value
 }
@@ -264,9 +240,7 @@ function detectLabel(
   )
 
   if (dayMatch) {
-    return normalizeDay(
-      dayMatch[1]
-    )
+    return normalizeDay(dayMatch[1])
   }
 
   const dateMatch = text.match(
@@ -286,9 +260,7 @@ function detectBreak(text: string) {
   )
 
   if (minutePattern) {
-    const value = Number(
-      minutePattern[1]
-    )
+    const value = Number(minutePattern[1])
 
     if (
       !Number.isNaN(value) &&
@@ -304,16 +276,10 @@ function detectBreak(text: string) {
   )
 
   if (durationPattern) {
-    const hours = Number(
-      durationPattern[1]
-    )
+    const hours = Number(durationPattern[1])
+    const minutes = Number(durationPattern[2])
 
-    const minutes = Number(
-      durationPattern[2]
-    )
-
-    const total =
-      hours * 60 + minutes
+    const total = hours * 60 + minutes
 
     if (
       total >= 0 &&
@@ -326,9 +292,7 @@ function detectBreak(text: string) {
   return 0
 }
 
-function detectPrintedHours(
-  text: string
-) {
+function detectPrintedHours(text: string) {
   const patterns = [
     /daily\s*total\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
     /hours?\s*(?:worked)?\s*:?\s*(\d{1,2}(?:\.\d{1,2})?)/i,
@@ -336,16 +300,13 @@ function detectPrintedHours(
   ]
 
   for (const pattern of patterns) {
-    const match =
-      text.match(pattern)
+    const match = text.match(pattern)
 
     if (!match) {
       continue
     }
 
-    const value = Number(
-      match[1]
-    )
+    const value = Number(match[1])
 
     if (
       !Number.isNaN(value) &&
@@ -383,10 +344,8 @@ function addCandidate(
   const duplicate =
     result.some(
       (row) =>
-        row.clock_in ===
-          normalizedStart &&
-        row.clock_out ===
-          normalizedEnd
+        row.clock_in === normalizedStart &&
+        row.clock_out === normalizedEnd
     )
 
   if (duplicate) {
@@ -397,9 +356,7 @@ function addCandidate(
     detectBreak(sourceText)
 
   const printedHours =
-    detectPrintedHours(
-      sourceText
-    )
+    detectPrintedHours(sourceText)
 
   const calculatedHours =
     getShiftMinutes(
@@ -438,10 +395,6 @@ function addCandidate(
   })
 }
 
-/* ======================================================
-   UNIVERSAL TIMECARD PARSER
-====================================================== */
-
 function parseUniversalTimecard(
   text: string
 ) {
@@ -451,27 +404,14 @@ function parseUniversalTimecard(
 
   const lines = cleaned
     .split('\n')
-    .map(
-      (line) =>
-        line.trim()
-    )
+    .map((line) => line.trim())
     .filter(Boolean)
 
   const detected:
     DetectedShift[] = []
 
-  /*
-   * PASS 1
-   *
-   * Prefer rows that already contain:
-   *
-   * Monday 06:48 19:31
-   * Jan 05 06:48 19:31
-   * 06:48 - 19:31
-   */
   for (const line of lines) {
-    const times =
-      findTimes(line)
+    const times = findTimes(line)
 
     if (times.length < 2) {
       continue
@@ -491,19 +431,6 @@ function parseUniversalTimecard(
     }
   }
 
-  /*
-   * PASS 2
-   *
-   * OCR frequently breaks a single
-   * timecard row across adjacent lines.
-   *
-   * Example:
-   *
-   * Monday
-   * 06:48
-   * 19:31
-   * Daily total 12.72
-   */
   if (detected.length === 0) {
     for (
       let index = 0;
@@ -511,10 +438,7 @@ function parseUniversalTimecard(
       index++
     ) {
       const block = lines
-        .slice(
-          index,
-          index + 5
-        )
+        .slice(index, index + 5)
         .join(' ')
 
       const times =
@@ -534,20 +458,12 @@ function parseUniversalTimecard(
           detected,
           block,
           times[timeIndex],
-          times[
-            timeIndex + 1
-          ]
+          times[timeIndex + 1]
         )
       }
     }
   }
 
-  /*
-   * PASS 3
-   *
-   * If there are no day/date labels,
-   * pair remaining valid times.
-   */
   if (detected.length === 0) {
     const allTimes =
       findTimes(cleaned)
@@ -562,9 +478,7 @@ function parseUniversalTimecard(
         detected,
         '',
         allTimes[index],
-        allTimes[
-          index + 1
-        ]
+        allTimes[index + 1]
       )
     }
   }
@@ -574,9 +488,7 @@ function parseUniversalTimecard(
       ...row,
 
       label:
-        row.label.startsWith(
-          'Shift '
-        )
+        row.label.startsWith('Shift ')
           ? `Shift ${index + 1}`
           : row.label,
     })
@@ -584,7 +496,7 @@ function parseUniversalTimecard(
 }
 
 /* ======================================================
-   BACKEND DOCUMENT CONVERTER
+   BACKEND CONVERTER
 ====================================================== */
 
 async function convertUploadedDocument(
@@ -626,9 +538,7 @@ async function convertUploadedDocument(
   }
 
   if (
-    !Array.isArray(
-      data.pages
-    ) ||
+    !Array.isArray(data.pages) ||
     data.pages.length === 0
   ) {
     throw new Error(
@@ -640,16 +550,14 @@ async function convertUploadedDocument(
 }
 
 /* ======================================================
-   OCR STANDARDIZED PAGES
+   OCR
 ====================================================== */
 
 async function recognizeConvertedPage(
   imageUrl: string
 ) {
   const Tesseract =
-    await import(
-      'tesseract.js'
-    )
+    await import('tesseract.js')
 
   const result =
     await Tesseract.recognize(
@@ -692,9 +600,17 @@ async function readConvertedPages(
       pages.length
     )
 
+    const page =
+      pages[index]
+
+    const preferredImage =
+      page.table_image ||
+      page.ocr_image ||
+      page.image
+
     const pageText =
       await recognizeConvertedPage(
-        pages[index].image
+        preferredImage
       )
 
     fullText +=
@@ -748,9 +664,61 @@ export default function Home() {
     useState(false)
 
   const fileRef =
-    useRef<
-      HTMLInputElement
-    >(null)
+    useRef<HTMLInputElement>(null)
+
+  /* ======================================================
+     EXTRA FRONTEND-ONLY FIELDS
+  ====================================================== */
+
+  const [
+    employeeName,
+    setEmployeeName,
+  ] = useState('')
+
+  const [
+    employeeId,
+    setEmployeeId,
+  ] = useState('')
+
+  const [
+    manager,
+    setManager,
+  ] = useState('')
+
+  const [
+    department,
+    setDepartment,
+  ] = useState('')
+
+  const [
+    addOvertime,
+    setAddOvertime,
+  ] = useState(false)
+
+  const [
+    earningsPerHour,
+    setEarningsPerHour,
+  ] = useState('')
+
+  const [
+    currency,
+    setCurrency,
+  ] = useState('$')
+
+  const [
+    weeklyWorkTime,
+    setWeeklyWorkTime,
+  ] = useState('40')
+
+  const [
+    overtimeMultiplier,
+    setOvertimeMultiplier,
+  ] = useState('1.5')
+
+  const [
+    weekStartDate,
+    setWeekStartDate,
+  ] = useState('')
 
   const workedMinutes =
     useMemo(
@@ -778,9 +746,7 @@ export default function Home() {
             minutes,
           0
         ),
-      [
-        workedMinutes,
-      ]
+      [workedMinutes]
     )
 
   function updateRow(
@@ -796,12 +762,10 @@ export default function Home() {
             row,
             rowIndex
           ) =>
-            rowIndex ===
-            index
+            rowIndex === index
               ? {
                   ...row,
-                  [key]:
-                    value,
+                  [key]: value,
                 }
               : row
         )
@@ -811,18 +775,9 @@ export default function Home() {
   }
 
   function startManual() {
-    setRows(
-      manualRows()
-    )
-
-    setMode(
-      'manual'
-    )
-
-    setSubmitted(
-      false
-    )
-
+    setRows(manualRows())
+    setMode('manual')
+    setSubmitted(false)
     setMessage('')
 
     setTimeout(
@@ -849,29 +804,15 @@ export default function Home() {
       return
     }
 
-    setMode(
-      'upload'
-    )
-
-    setSubmitted(
-      false
-    )
-
-    setReadingFile(
-      true
-    )
+    setMode('upload')
+    setSubmitted(false)
+    setReadingFile(true)
 
     setMessage(
       'Preparing your timecard…'
     )
 
     try {
-      /*
-       * STEP 1
-       *
-       * Convert PDF/photo/scan/etc.
-       * into standardized JPEG pages.
-       */
       const pages =
         await convertUploadedDocument(
           file
@@ -881,11 +822,6 @@ export default function Home() {
         `Document prepared. Reading ${pages.length} page(s)…`
       )
 
-      /*
-       * STEP 2
-       *
-       * OCR every returned page.
-       */
       const text =
         await readConvertedPages(
           pages,
@@ -914,12 +850,6 @@ export default function Home() {
         )
       }
 
-      /*
-       * STEP 3
-       *
-       * Turn arbitrary OCR into
-       * normalized work shifts.
-       */
       const detected =
         parseUniversalTimecard(
           text
@@ -949,18 +879,8 @@ export default function Home() {
         return
       }
 
-      /*
-       * STEP 4
-       *
-       * Populate calculator.
-       */
-      setRows(
-        detected
-      )
-
-      setSubmitted(
-        true
-      )
+      setRows(detected)
+      setSubmitted(true)
 
       const reviewCount =
         detected.filter(
@@ -999,9 +919,7 @@ export default function Home() {
     } catch (
       error: any
     ) {
-      console.error(
-        error
-      )
+      console.error(error)
 
       setRows(
         manualRows()
@@ -1069,10 +987,7 @@ export default function Home() {
     }
 
     setMessage('')
-
-    setSubmitted(
-      true
-    )
+    setSubmitted(true)
 
     setTimeout(
       () => {
@@ -1092,19 +1007,22 @@ export default function Home() {
   }
 
   function reset() {
-    setRows(
-      manualRows()
-    )
-
-    setMode(
-      'manual'
-    )
-
-    setSubmitted(
-      false
-    )
-
+    setRows(manualRows())
+    setMode('manual')
+    setSubmitted(false)
     setMessage('')
+
+    setEmployeeName('')
+    setEmployeeId('')
+    setManager('')
+    setDepartment('')
+
+    setAddOvertime(false)
+    setEarningsPerHour('')
+    setCurrency('$')
+    setWeeklyWorkTime('40')
+    setOvertimeMultiplier('1.5')
+    setWeekStartDate('')
 
     if (
       fileRef.current
@@ -1173,8 +1091,7 @@ export default function Home() {
               event
             ) =>
               upload(
-                event.target
-                  .files?.[0]
+                event.target.files?.[0]
               )
             }
           />
@@ -1266,8 +1183,7 @@ export default function Home() {
                     updateRow(
                       index,
                       'clock_in',
-                      event.target
-                        .value
+                      event.target.value
                     )
                   }
                 />
@@ -1284,8 +1200,7 @@ export default function Home() {
                     updateRow(
                       index,
                       'clock_out',
-                      event.target
-                        .value
+                      event.target.value
                     )
                   }
                 />
@@ -1305,9 +1220,7 @@ export default function Home() {
                         index,
                         'break_minutes',
                         Number(
-                          event
-                            .target
-                            .value
+                          event.target.value
                         )
                       )
                     }
@@ -1352,6 +1265,265 @@ export default function Home() {
               </div>
             )
           )}
+        </div>
+
+        <div className="employeeDetailsSection">
+          <div className="employeeFields">
+            <label>
+              <span>
+                Employee Name
+              </span>
+
+              <input
+                type="text"
+                value={
+                  employeeName
+                }
+                placeholder="e.g. John Smith"
+                onChange={(
+                  event
+                ) =>
+                  setEmployeeName(
+                    event.target.value
+                  )
+                }
+              />
+            </label>
+
+            <label>
+              <span>
+                Employee ID
+              </span>
+
+              <input
+                type="text"
+                value={
+                  employeeId
+                }
+                placeholder="e.g. 3256"
+                onChange={(
+                  event
+                ) =>
+                  setEmployeeId(
+                    event.target.value
+                  )
+                }
+              />
+            </label>
+
+            <label>
+              <span>
+                Manager
+              </span>
+
+              <input
+                type="text"
+                value={
+                  manager
+                }
+                placeholder="e.g. Jane Smith"
+                onChange={(
+                  event
+                ) =>
+                  setManager(
+                    event.target.value
+                  )
+                }
+              />
+            </label>
+
+            <label>
+              <span>
+                Department
+              </span>
+
+              <input
+                type="text"
+                value={
+                  department
+                }
+                placeholder="e.g. Engineering"
+                onChange={(
+                  event
+                ) =>
+                  setDepartment(
+                    event.target.value
+                  )
+                }
+              />
+            </label>
+          </div>
+
+          <div className="payFields">
+            <div className="overtimeChoice">
+              <span>
+                Add Overtime?
+              </span>
+
+              <div className="radioGroup">
+                <label>
+                  <input
+                    type="radio"
+                    name="addOvertime"
+                    checked={
+                      addOvertime
+                    }
+                    onChange={() =>
+                      setAddOvertime(
+                        true
+                      )
+                    }
+                  />
+
+                  Yes
+                </label>
+
+                <label>
+                  <input
+                    type="radio"
+                    name="addOvertime"
+                    checked={
+                      !addOvertime
+                    }
+                    onChange={() =>
+                      setAddOvertime(
+                        false
+                      )
+                    }
+                  />
+
+                  No
+                </label>
+              </div>
+            </div>
+
+            <label>
+              <span>
+                Earnings Per Hour
+              </span>
+
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={
+                  earningsPerHour
+                }
+                placeholder="50"
+                onChange={(
+                  event
+                ) =>
+                  setEarningsPerHour(
+                    event.target.value
+                  )
+                }
+              />
+            </label>
+
+            <label>
+              <span>
+                Currency
+              </span>
+
+              <select
+                value={
+                  currency
+                }
+                onChange={(
+                  event
+                ) =>
+                  setCurrency(
+                    event.target.value
+                  )
+                }
+              >
+                <option value="$">
+                  $ USD
+                </option>
+
+                <option value="€">
+                  € EUR
+                </option>
+
+                <option value="£">
+                  £ GBP
+                </option>
+
+                <option value="C$">
+                  C$ CAD
+                </option>
+
+                <option value="A$">
+                  A$ AUD
+                </option>
+              </select>
+            </label>
+
+            <label>
+              <span>
+                Weekly Work Time (hrs)
+              </span>
+
+              <input
+                type="number"
+                min="0"
+                value={
+                  weeklyWorkTime
+                }
+                placeholder="40"
+                onChange={(
+                  event
+                ) =>
+                  setWeeklyWorkTime(
+                    event.target.value
+                  )
+                }
+              />
+            </label>
+
+            <label>
+              <span>
+                Overtime Multiplier
+              </span>
+
+              <input
+                type="number"
+                min="1"
+                step="0.1"
+                value={
+                  overtimeMultiplier
+                }
+                placeholder="1.5"
+                onChange={(
+                  event
+                ) =>
+                  setOvertimeMultiplier(
+                    event.target.value
+                  )
+                }
+              />
+            </label>
+
+            <label>
+              <span>
+                Week Start Date
+              </span>
+
+              <input
+                type="date"
+                value={
+                  weekStartDate
+                }
+                onChange={(
+                  event
+                ) =>
+                  setWeekStartDate(
+                    event.target.value
+                  )
+                }
+              />
+            </label>
+          </div>
         </div>
 
         <div className="calculatorActions">
