@@ -16,13 +16,20 @@ type ConvertedPage = {
   width: number
   height: number
   image: string
+  full_ocr_image?: string
   ocr_image?: string
   table_image?: string
-}
-
-type OcrRegion = {
-  canvas: HTMLCanvasElement
-  label: string
+  upper_table_image?: string
+  source_width?: number
+  source_height?: number
+  full_ocr_width?: number
+  full_ocr_height?: number
+  ocr_width?: number
+  ocr_height?: number
+  table_width?: number
+  table_height?: number
+  upper_table_width?: number
+  upper_table_height?: number
 }
 
 const API = (
@@ -736,307 +743,17 @@ function buildWeeklyRows(
 }
 
 /* ======================================================
-   LOAD IMAGE
+   HIGH-RESOLUTION OCR
 ====================================================== */
 
-function loadImage(
-  source: string
-): Promise<HTMLImageElement> {
-  return new Promise(
-    (
-      resolve,
-      reject
-    ) => {
-      const image =
-        new Image()
-
-      image.onload = () =>
-        resolve(image)
-
-      image.onerror = () =>
-        reject(
-          new Error(
-            'Could not load converted page image.'
-          )
-        )
-
-      image.src =
-        source
-    }
-  )
+type OcrSource = {
+  label: string
+  image: string
 }
 
-/* ======================================================
-   CROP + PREPROCESS
-====================================================== */
-
-function cropImage(
-  image: HTMLImageElement,
-  x: number,
-  y: number,
-  width: number,
-  height: number,
-  scale = 2
-) {
-  const canvas =
-    document.createElement(
-      'canvas'
-    )
-
-  canvas.width =
-    Math.max(
-      1,
-      Math.round(
-        width * scale
-      )
-    )
-
-  canvas.height =
-    Math.max(
-      1,
-      Math.round(
-        height * scale
-      )
-    )
-
-  const context =
-    canvas.getContext(
-      '2d',
-      {
-        willReadFrequently:
-          true,
-      }
-    )
-
-  if (!context) {
-    throw new Error(
-      'Could not create OCR canvas.'
-    )
-  }
-
-  context.imageSmoothingEnabled =
-    true
-
-  context.drawImage(
-    image,
-    x,
-    y,
-    width,
-    height,
-    0,
-    0,
-    canvas.width,
-    canvas.height
-  )
-
-  const imageData =
-    context.getImageData(
-      0,
-      0,
-      canvas.width,
-      canvas.height
-    )
-
-  const pixels =
-    imageData.data
-
-  for (
-    let index = 0;
-    index <
-      pixels.length;
-    index += 4
-  ) {
-    const gray =
-      pixels[index] *
-        0.299 +
-      pixels[
-        index + 1
-      ] *
-        0.587 +
-      pixels[
-        index + 2
-      ] *
-        0.114
-
-    /*
-     * Strong black/white threshold.
-     */
-    const value =
-      gray < 190
-        ? 0
-        : 255
-
-    pixels[index] =
-      value
-
-    pixels[
-      index + 1
-    ] =
-      value
-
-    pixels[
-      index + 2
-    ] =
-      value
-  }
-
-  context.putImageData(
-    imageData,
-    0,
-    0
-  )
-
-  return canvas
-}
-
-/* ======================================================
-   BUILD OCR REGIONS
-====================================================== */
-
-function buildOcrRegions(
-  image: HTMLImageElement
-): OcrRegion[] {
-  const regions:
-    OcrRegion[] = []
-
-  const width =
-    image.naturalWidth ||
-    image.width
-
-  const height =
-    image.naturalHeight ||
-    image.height
-
-  /*
-   * Full page.
-   */
-  regions.push({
-    label:
-      'full-page',
-
-    canvas:
-      cropImage(
-        image,
-        0,
-        0,
-        width,
-        height,
-        1.5
-      ),
-  })
-
-  /*
-   * Overlapping horizontal strips.
-   */
-  const stripHeight =
-    Math.max(
-      140,
-      Math.round(
-        height *
-          0.16
-      )
-    )
-
-  const step =
-    Math.max(
-      80,
-      Math.round(
-        stripHeight *
-          0.55
-      )
-    )
-
-  let rowNumber = 1
-
-  for (
-    let y = 0;
-    y < height;
-    y += step
-  ) {
-    const actualHeight =
-      Math.min(
-        stripHeight,
-        height - y
-      )
-
-    if (
-      actualHeight <
-      70
-    ) {
-      continue
-    }
-
-    regions.push({
-      label:
-        `row-${rowNumber}`,
-
-      canvas:
-        cropImage(
-          image,
-          0,
-          y,
-          width,
-          actualHeight,
-          2.4
-        ),
-    })
-
-    /*
-     * Wide screenshots:
-     * split left/right.
-     */
-    if (
-      width >= 850
-    ) {
-      const halfWidth =
-        Math.round(
-          width / 2
-        )
-
-      regions.push({
-        label:
-          `row-${rowNumber}-left`,
-
-        canvas:
-          cropImage(
-            image,
-            0,
-            y,
-            halfWidth,
-            actualHeight,
-            2.6
-          ),
-      })
-
-      regions.push({
-        label:
-          `row-${rowNumber}-right`,
-
-        canvas:
-          cropImage(
-            image,
-            halfWidth,
-            y,
-            width -
-              halfWidth,
-            actualHeight,
-            2.6
-          ),
-      })
-    }
-
-    rowNumber++
-  }
-
-  return regions
-}
-
-/* ======================================================
-   TWO-PASS OCR
-====================================================== */
-
-async function recognizeCanvas(
-  canvas: HTMLCanvasElement
+async function recognizeImageSource(
+  source: OcrSource,
+  pageNumber: number
 ) {
   const Tesseract =
     await import(
@@ -1044,15 +761,12 @@ async function recognizeCanvas(
     )
 
   /*
-   * ================================================
    * PASS 1
-   * General OCR for labels, days, dates.
-   * ================================================
+   * General OCR reads weekday/date labels and printed text.
    */
-
   const general =
     await Tesseract.recognize(
-      canvas,
+      source.image,
       'eng',
       {
         logger: (
@@ -1063,7 +777,7 @@ async function recognizeCanvas(
             'recognizing text'
           ) {
             console.log(
-              'General OCR:',
+              `General OCR page ${pageNumber} / ${source.label}:`,
               Math.round(
                 (
                   progress.progress ||
@@ -1078,12 +792,10 @@ async function recognizeCanvas(
     )
 
   /*
-   * ================================================
    * PASS 2
-   * Time/date-focused OCR.
-   * ================================================
+   * Restricted OCR gives Tesseract a much smaller alphabet
+   * for clock values and dates.
    */
-
   const timeWorker =
     await Tesseract.createWorker(
       'eng'
@@ -1103,7 +815,7 @@ async function recognizeCanvas(
 
     const timeResult =
       await timeWorker.recognize(
-        canvas
+        source.image
       )
 
     const generalText =
@@ -1115,12 +827,12 @@ async function recognizeCanvas(
       ''
 
     console.log(
-      'GENERAL OCR:',
+      `GENERAL OCR page ${pageNumber} / ${source.label}:`,
       generalText
     )
 
     console.log(
-      'TIME OCR:',
+      `TIME OCR page ${pageNumber} / ${source.label}:`,
       timeText
     )
 
@@ -1136,132 +848,78 @@ async function recognizeCanvas(
   }
 }
 
-/* ======================================================
-   UNIQUE OCR BLOCKS
-====================================================== */
+function getPageOcrSources(
+  page: ConvertedPage
+): OcrSource[] {
+  const candidates: Array<
+    OcrSource | null
+  > = [
+    page.table_image
+      ? {
+          label: 'table',
+          image: page.table_image,
+        }
+      : null,
 
-function uniqueOcrTexts(
-  values: string[]
-) {
-  const unique:
-    string[] = []
+    page.upper_table_image
+      ? {
+          label: 'upper-table',
+          image: page.upper_table_image,
+        }
+      : null,
 
+    page.ocr_image
+      ? {
+          label: 'timecard',
+          image: page.ocr_image,
+        }
+      : null,
+
+    page.full_ocr_image
+      ? {
+          label: 'full-ocr',
+          image: page.full_ocr_image,
+        }
+      : null,
+
+    page.image
+      ? {
+          label: 'preview',
+          image: page.image,
+        }
+      : null,
+  ]
+
+  const unique: OcrSource[] = []
   const seen =
     new Set<string>()
 
   for (
-    const value
-    of values
+    const candidate
+    of candidates
   ) {
-    const cleaned =
-      value
-        .replace(
-          /\s+/g,
-          ' '
-        )
-        .trim()
+    if (!candidate) {
+      continue
+    }
 
     if (
-      cleaned.length <
-      3
+      seen.has(
+        candidate.image
+      )
     ) {
       continue
     }
 
-    const key =
-      cleaned.toLowerCase()
-
-    if (
-      seen.has(key)
-    ) {
-      continue
-    }
-
-    seen.add(key)
+    seen.add(
+      candidate.image
+    )
 
     unique.push(
-      value.trim()
+      candidate
     )
   }
 
   return unique
-}
-
-/* ======================================================
-   OCR SEGMENTED PAGE
-====================================================== */
-
-async function recognizeSegmentedPage(
-  source: string,
-  pageNumber: number
-) {
-  const image =
-    await loadImage(
-      source
-    )
-
-  const regions =
-    buildOcrRegions(
-      image
-    )
-
-  const texts:
-    string[] = []
-
-  for (
-    let index = 0;
-    index <
-      regions.length;
-    index++
-  ) {
-    const region =
-      regions[index]
-
-    try {
-      const text =
-        await recognizeCanvas(
-          region.canvas
-        )
-
-      console.log(
-        `OCR PAGE ${pageNumber} / ${region.label}:`,
-        text
-      )
-
-      if (
-        text &&
-        text.trim()
-      ) {
-        texts.push(
-          [
-            `OCR_REGION_${region.label}`,
-            text.trim(),
-            'END_OCR_REGION',
-          ].join('\n')
-        )
-      }
-    } catch (
-      error
-    ) {
-      console.warn(
-        `OCR failed for ${region.label}`,
-        error
-      )
-    }
-
-    /*
-     * Release memory.
-     */
-    region.canvas.width =
-      1
-
-    region.canvas.height =
-      1
-  }
-
-  return uniqueOcrTexts(
-    texts
-  )
 }
 
 /* ======================================================
@@ -1294,34 +952,88 @@ async function readConvertedPages(
       pages.length
     )
 
-    const source =
-      page.ocr_image ||
-      page.table_image ||
-      page.image
-
-    if (!source) {
-      continue
-    }
-
-    try {
-      const texts =
-        await recognizeSegmentedPage(
-          source,
-          pageIndex + 1
-        )
-
-      allTexts.push(
-        ...texts
+    const sources =
+      getPageOcrSources(
+        page
       )
-    } catch (
-      error
+
+    let pageDetectedTimes = 0
+
+    for (
+      let sourceIndex = 0;
+      sourceIndex <
+        sources.length;
+      sourceIndex++
     ) {
-      console.warn(
-        `Could not OCR page ${
-          pageIndex + 1
-        }:`,
+      const source =
+        sources[
+          sourceIndex
+        ]
+
+      /*
+       * The backend now returns high-resolution PNG crops.
+       * OCR those directly. Do not resize/threshold them again
+       * in the browser because that previously destroyed thin
+       * digits and colons.
+       */
+      try {
+        const text =
+          await recognizeImageSource(
+            source,
+            pageIndex + 1
+          )
+
+        if (
+          text &&
+          text.trim()
+        ) {
+          const sourceTimes =
+            findTimes(
+              text
+            )
+
+          pageDetectedTimes +=
+            sourceTimes.length
+
+          console.log(
+            `OCR TIMES page ${pageIndex + 1} / ${source.label}:`,
+            sourceTimes
+          )
+
+          allTexts.push(
+            [
+              `OCR_REGION_page-${pageIndex + 1}-${source.label}`,
+              text.trim(),
+              'END_OCR_REGION',
+            ].join('\n')
+          )
+        }
+      } catch (
         error
-      )
+      ) {
+        console.warn(
+          `Could not OCR page ${pageIndex + 1} / ${source.label}:`,
+          error
+        )
+      }
+
+      /*
+       * Preview JPEG is only a final fallback.
+       * If the high-resolution sources already produced
+       * several clock-like values, skip the preview.
+       */
+      const nextSource =
+        sources[
+          sourceIndex + 1
+        ]
+
+      if (
+        nextSource?.label ===
+          'preview' &&
+        pageDetectedTimes >= 4
+      ) {
+        break
+      }
     }
   }
 
