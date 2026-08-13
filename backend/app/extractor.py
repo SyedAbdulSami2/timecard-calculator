@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import base64
 import csv
 import io
 import re
 from pathlib import Path
 from typing import Any
+
+from PIL import Image
 
 from .document_converter import convert_document
 
@@ -49,22 +52,34 @@ HEADER_MAP = {
 }
 
 
-def _num(value: Any) -> float:
+# ============================================================
+# BASIC HELPERS
+# ============================================================
+
+def _num(
+    value: Any,
+) -> float:
     try:
         return float(
             str(value).strip() or 0
         )
+
     except Exception:
         return 0.0
 
 
-def _break(value: Any) -> int:
-    text = str(value).strip().lower()
+def _break(
+    value: Any,
+) -> int:
+    text = (
+        str(value)
+        .strip()
+        .lower()
+    )
 
     if not text:
         return 0
 
-    # Support 0:30 style.
     time_match = re.fullmatch(
         r"(\d{1,2})\s*:\s*(\d{1,2})",
         text,
@@ -84,7 +99,6 @@ def _break(value: Any) -> int:
             + minutes
         )
 
-    # Support "30 minutes", "30 min", etc.
     number_match = re.search(
         r"(\d+)",
         text,
@@ -121,75 +135,111 @@ def extract_csv(
     )
 
     reader = csv.DictReader(
-        io.StringIO(text)
+        io.StringIO(
+            text
+        )
     )
 
-    rows = []
+    rows: list[
+        dict[str, Any]
+    ] = []
 
     for raw in reader:
         normalized = {
             HEADER_MAP.get(
-                (key or "").strip().lower(),
-                (key or "").strip().lower(),
+                (
+                    key
+                    or ""
+                )
+                .strip()
+                .lower(),
+                (
+                    key
+                    or ""
+                )
+                .strip()
+                .lower(),
             ): value
-            for key, value in raw.items()
+            for key, value
+            in raw.items()
         }
 
         rows.append(
             {
-                "date": normalized.get(
-                    "date",
-                    "",
-                ),
-                "day": normalized.get(
-                    "day",
-                    "",
-                ),
-                "clock_in": normalized.get(
-                    "clock_in",
-                    "",
-                ),
-                "clock_out": normalized.get(
-                    "clock_out",
-                    "",
-                ),
-                "break_minutes": _break(
+                "date":
                     normalized.get(
-                        "break_minutes",
-                        0,
-                    )
-                ),
-                "regular_hours": _num(
+                        "date",
+                        "",
+                    ),
+
+                "day":
                     normalized.get(
-                        "regular_hours",
-                        0,
-                    )
-                ),
-                "overtime_hours": _num(
+                        "day",
+                        "",
+                    ),
+
+                "clock_in":
                     normalized.get(
-                        "overtime_hours",
-                        0,
-                    )
-                ),
-                "holiday_hours": _num(
+                        "clock_in",
+                        "",
+                    ),
+
+                "clock_out":
                     normalized.get(
-                        "holiday_hours",
-                        0,
-                    )
-                ),
-                "on_call_hours": _num(
-                    normalized.get(
-                        "on_call_hours",
-                        0,
-                    )
-                ),
-                "call_back_hours": _num(
-                    normalized.get(
-                        "call_back_hours",
-                        0,
-                    )
-                ),
-                "total_hours": 0.0,
+                        "clock_out",
+                        "",
+                    ),
+
+                "break_minutes":
+                    _break(
+                        normalized.get(
+                            "break_minutes",
+                            0,
+                        )
+                    ),
+
+                "regular_hours":
+                    _num(
+                        normalized.get(
+                            "regular_hours",
+                            0,
+                        )
+                    ),
+
+                "overtime_hours":
+                    _num(
+                        normalized.get(
+                            "overtime_hours",
+                            0,
+                        )
+                    ),
+
+                "holiday_hours":
+                    _num(
+                        normalized.get(
+                            "holiday_hours",
+                            0,
+                        )
+                    ),
+
+                "on_call_hours":
+                    _num(
+                        normalized.get(
+                            "on_call_hours",
+                            0,
+                        )
+                    ),
+
+                "call_back_hours":
+                    _num(
+                        normalized.get(
+                            "call_back_hours",
+                            0,
+                        )
+                    ),
+
+                "total_hours":
+                    0.0,
             }
         )
 
@@ -199,7 +249,8 @@ def extract_csv(
         "week_end": "",
         "rows": rows,
         "warnings": [],
-        "document_mode": "structured",
+        "document_mode":
+            "structured",
     }
 
 
@@ -213,11 +264,15 @@ def extract_xlsx(
     from openpyxl import load_workbook
 
     workbook = load_workbook(
-        io.BytesIO(data),
+        io.BytesIO(
+            data
+        ),
         data_only=True,
     )
 
-    worksheet = workbook.active
+    worksheet = (
+        workbook.active
+    )
 
     values = list(
         worksheet.iter_rows(
@@ -226,7 +281,9 @@ def extract_xlsx(
     )
 
     if not values:
-        result = _empty_result()
+        result = (
+            _empty_result()
+        )
 
         result[
             "document_mode"
@@ -235,10 +292,13 @@ def extract_xlsx(
         return result
 
     headers = [
-        str(value or "")
+        str(
+            value or ""
+        )
         .strip()
         .lower()
-        for value in values[0]
+        for value
+        in values[0]
     ]
 
     keys = [
@@ -246,18 +306,24 @@ def extract_xlsx(
             header,
             header,
         )
-        for header in headers
+        for header
+        in headers
     ]
 
-    rows = []
+    rows: list[
+        dict[str, Any]
+    ] = []
 
-    for values_row in values[1:]:
+    for values_row in values[
+        1:
+    ]:
         if not any(
             value not in (
                 None,
                 "",
             )
-            for value in values_row
+            for value
+            in values_row
         ):
             continue
 
@@ -270,71 +336,92 @@ def extract_xlsx(
 
         rows.append(
             {
-                "date": str(
-                    raw.get(
-                        "date",
-                        "",
-                    )
-                    or ""
-                ),
-                "day": str(
-                    raw.get(
-                        "day",
-                        "",
-                    )
-                    or ""
-                ),
-                "clock_in": str(
-                    raw.get(
-                        "clock_in",
-                        "",
-                    )
-                    or ""
-                ),
-                "clock_out": str(
-                    raw.get(
-                        "clock_out",
-                        "",
-                    )
-                    or ""
-                ),
-                "break_minutes": _break(
-                    raw.get(
-                        "break_minutes",
-                        0,
-                    )
-                ),
-                "regular_hours": _num(
-                    raw.get(
-                        "regular_hours",
-                        0,
-                    )
-                ),
-                "overtime_hours": _num(
-                    raw.get(
-                        "overtime_hours",
-                        0,
-                    )
-                ),
-                "holiday_hours": _num(
-                    raw.get(
-                        "holiday_hours",
-                        0,
-                    )
-                ),
-                "on_call_hours": _num(
-                    raw.get(
-                        "on_call_hours",
-                        0,
-                    )
-                ),
-                "call_back_hours": _num(
-                    raw.get(
-                        "call_back_hours",
-                        0,
-                    )
-                ),
-                "total_hours": 0.0,
+                "date":
+                    str(
+                        raw.get(
+                            "date",
+                            "",
+                        )
+                        or ""
+                    ),
+
+                "day":
+                    str(
+                        raw.get(
+                            "day",
+                            "",
+                        )
+                        or ""
+                    ),
+
+                "clock_in":
+                    str(
+                        raw.get(
+                            "clock_in",
+                            "",
+                        )
+                        or ""
+                    ),
+
+                "clock_out":
+                    str(
+                        raw.get(
+                            "clock_out",
+                            "",
+                        )
+                        or ""
+                    ),
+
+                "break_minutes":
+                    _break(
+                        raw.get(
+                            "break_minutes",
+                            0,
+                        )
+                    ),
+
+                "regular_hours":
+                    _num(
+                        raw.get(
+                            "regular_hours",
+                            0,
+                        )
+                    ),
+
+                "overtime_hours":
+                    _num(
+                        raw.get(
+                            "overtime_hours",
+                            0,
+                        )
+                    ),
+
+                "holiday_hours":
+                    _num(
+                        raw.get(
+                            "holiday_hours",
+                            0,
+                        )
+                    ),
+
+                "on_call_hours":
+                    _num(
+                        raw.get(
+                            "on_call_hours",
+                            0,
+                        )
+                    ),
+
+                "call_back_hours":
+                    _num(
+                        raw.get(
+                            "call_back_hours",
+                            0,
+                        )
+                    ),
+
+                "total_hours":
+                    0.0,
             }
         )
 
@@ -344,24 +431,253 @@ def extract_xlsx(
         "week_end": "",
         "rows": rows,
         "warnings": [],
-        "document_mode": "structured",
+        "document_mode":
+            "structured",
     }
 
 
 # ============================================================
-# PDF / IMAGE
+# DATA URL → PIL IMAGE
 # ============================================================
 
-def extract_convertible_document(
+def decode_data_image(
+    value: str,
+) -> Image.Image:
+    """
+    Convert:
+
+    data:image/png;base64,...
+
+    or:
+
+    data:image/jpeg;base64,...
+
+    back into a Pillow Image.
+    """
+
+    if not value:
+        raise ValueError(
+            "OCR image is empty."
+        )
+
+    if "," not in value:
+        raise ValueError(
+            "Invalid OCR image data."
+        )
+
+    _, encoded = (
+        value.split(
+            ",",
+            1,
+        )
+    )
+
+    try:
+        raw = base64.b64decode(
+            encoded
+        )
+
+        image = Image.open(
+            io.BytesIO(
+                raw
+            )
+        )
+
+        image.load()
+
+        return image.convert(
+            "RGB"
+        )
+
+    except Exception as exc:
+        raise ValueError(
+            "Could not decode OCR image."
+        ) from exc
+
+
+# ============================================================
+# BACKEND OCR
+# ============================================================
+
+def ocr_image(
+    image: Image.Image,
+    *,
+    mode: str = "general",
+) -> str:
+    """
+    OCR a prepared image on the backend.
+
+    mode='general'
+        allows labels/dates/day names.
+
+    mode='times'
+        concentrates on numerical/time values.
+    """
+
+    try:
+        import pytesseract
+
+    except ImportError as exc:
+        raise RuntimeError(
+            (
+                "Backend OCR is not installed. "
+                "Install pytesseract and the "
+                "Tesseract OCR system package."
+            )
+        ) from exc
+
+    if mode == "times":
+        config = (
+            "--oem 3 "
+            "--psm 6 "
+            "-c preserve_interword_spaces=1 "
+            "-c tessedit_char_whitelist="
+            "0123456789:/.-AMPampNnAa"
+        )
+
+    else:
+        config = (
+            "--oem 3 "
+            "--psm 6 "
+            "-c preserve_interword_spaces=1"
+        )
+
+    try:
+        text = pytesseract.image_to_string(
+            image,
+            lang="eng",
+            config=config,
+        )
+
+    except Exception as exc:
+        raise RuntimeError(
+            f"Backend OCR failed: {exc}"
+        ) from exc
+
+    return (
+        text
+        or ""
+    ).strip()
+
+
+# ============================================================
+# OCR CONVERTED PAGE
+# ============================================================
+
+def ocr_converted_page(
+    page: dict[str, Any],
+) -> str:
+    """
+    OCR one converted page.
+
+    We deliberately avoid OCRing every available image.
+
+    Priority:
+    1. table_image
+    2. upper_table_image
+    3. ocr_image
+    4. full_ocr_image
+    5. image
+
+    This prevents the extremely slow repeated OCR behavior
+    previously seen in the browser.
+    """
+
+    sources = [
+        (
+            "table",
+            page.get(
+                "table_image"
+            ),
+        ),
+        (
+            "upper_table",
+            page.get(
+                "upper_table_image"
+            ),
+        ),
+        (
+            "ocr",
+            page.get(
+                "ocr_image"
+            ),
+        ),
+        (
+            "full",
+            page.get(
+                "full_ocr_image"
+            ),
+        ),
+        (
+            "preview",
+            page.get(
+                "image"
+            ),
+        ),
+    ]
+
+    selected_name = ""
+    selected_source = ""
+
+    for (
+        source_name,
+        source_value,
+    ) in sources:
+        if source_value:
+            selected_name = (
+                source_name
+            )
+
+            selected_source = (
+                source_value
+            )
+
+            break
+
+    if not selected_source:
+        return ""
+
+    image = decode_data_image(
+        selected_source
+    )
+
+    general_text = ocr_image(
+        image,
+        mode="general",
+    )
+
+    time_text = ocr_image(
+        image,
+        mode="times",
+    )
+
+    return "\n".join(
+        [
+            (
+                f"OCR_SOURCE: "
+                f"{selected_name}"
+            ),
+            general_text,
+            "OCR_TIMES:",
+            time_text,
+        ]
+    ).strip()
+
+
+# ============================================================
+# CONVERT + BACKEND OCR
+# ============================================================
+
+def extract_ocr_text(
     filename: str,
     data: bytes,
 ) -> dict[str, Any]:
     """
-    Convert PDF/image documents into normalized PNG pages.
+    Convert any supported PDF/image document and OCR it.
 
-    OCR is intentionally not performed here.
-    The frontend can OCR these normalized pages and then
-    pass the extracted text through its universal parser.
+    Returns OCR text only.
+
+    Structured parsing belongs in timecard_extractor.py.
     """
 
     converted = convert_document(
@@ -376,31 +692,135 @@ def extract_convertible_document(
 
     if not pages:
         raise ValueError(
-            "The document was converted, but no pages were produced."
+            (
+                "The document was converted, "
+                "but no pages were produced."
+            )
         )
+
+    page_texts: list[str] = []
+
+    for index, page in enumerate(
+        pages
+    ):
+        try:
+            text = ocr_converted_page(
+                page
+            )
+
+            if text:
+                page_texts.append(
+                    "\n".join(
+                        [
+                            (
+                                "===== PAGE "
+                                f"{index + 1} "
+                                "====="
+                            ),
+                            text,
+                        ]
+                    )
+                )
+
+        except Exception as exc:
+            page_texts.append(
+                (
+                    f"===== PAGE {index + 1} =====\n"
+                    f"OCR_ERROR: {exc}"
+                )
+            )
+
+    return {
+        "filename":
+            converted.get(
+                "filename",
+                filename,
+            ),
+
+        "page_count":
+            converted.get(
+                "page_count",
+                len(
+                    pages
+                ),
+            ),
+
+        "text":
+            "\n\n".join(
+                page_texts
+            ).strip(),
+
+        "document_mode":
+            "backend_ocr",
+    }
+
+
+# ============================================================
+# PDF / IMAGE LEGACY RESPONSE
+# ============================================================
+
+def extract_convertible_document(
+    filename: str,
+    data: bytes,
+) -> dict[str, Any]:
+    """
+    Legacy /extract behavior.
+
+    It now performs backend OCR instead of merely returning
+    converted images.
+    """
+
+    ocr_result = extract_ocr_text(
+        filename,
+        data,
+    )
+
+    text = (
+        ocr_result.get(
+            "text",
+            ""
+        )
+        or ""
+    )
 
     return {
         "employee_name": "",
         "week_start": "",
         "week_end": "",
         "rows": [],
-        "warnings": [
-            (
-                "Document converted successfully. "
-                "OCR is required to detect time entries."
-            )
-        ],
-        "ocr_status": "conversion_complete",
-        "document_mode": "converted",
-        "filename": converted.get(
-            "filename",
-            filename,
+        "warnings": (
+            []
+            if text
+            else [
+                (
+                    "The document was converted, "
+                    "but no readable OCR text "
+                    "was detected."
+                )
+            ]
         ),
-        "page_count": converted.get(
-            "page_count",
-            len(pages),
+        "ocr_status": (
+            "complete"
+            if text
+            else "manual_review_required"
         ),
-        "pages": pages,
+        "document_mode":
+            "backend_ocr",
+
+        "filename":
+            ocr_result.get(
+                "filename",
+                filename,
+            ),
+
+        "page_count":
+            ocr_result.get(
+                "page_count",
+                0,
+            ),
+
+        "raw_text":
+            text,
     }
 
 
@@ -421,7 +841,8 @@ def extract_document(
             (
                 "Unsupported file type. "
                 "Supported formats are PDF, CSV, XLSX, "
-                "JPG, JPEG, PNG, WEBP, BMP, TIF, and TIFF."
+                "JPG, JPEG, PNG, WEBP, BMP, TIF, "
+                "and TIFF."
             )
         )
 
