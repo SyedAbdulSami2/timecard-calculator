@@ -71,9 +71,7 @@ function normalizeTime(value: string) {
 }
 
 function parseTime(value: string): number | null {
-  if (!value?.trim()) {
-    return null
-  }
+  if (!value?.trim()) return null
 
   let text = normalizeTime(value)
   let meridiem = ''
@@ -87,9 +85,7 @@ function parseTime(value: string): number | null {
 
   const match = text.match(/^(\d{1,2}):(\d{2})$/)
 
-  if (!match) {
-    return null
-  }
+  if (!match) return null
 
   let hours = Number(match[1])
   const minutes = Number(match[2])
@@ -115,10 +111,8 @@ function parseTime(value: string): number | null {
     if (meridiem === 'PM') {
       hours += 12
     }
-  } else {
-    if (hours < 0 || hours > 23) {
-      return null
-    }
+  } else if (hours > 23) {
+    return null
   }
 
   return hours * 60 + minutes
@@ -167,13 +161,8 @@ function isPlausibleShift(
     duration += 24 * 60
   }
 
-  if (duration < 15) {
-    return false
-  }
-
-  if (duration > 20 * 60) {
-    return false
-  }
+  if (duration < 15) return false
+  if (duration > 20 * 60) return false
 
   return true
 }
@@ -186,13 +175,8 @@ function readableHours(minutes: number) {
   const hours = Math.floor(minutes / 60)
   const mins = minutes % 60
 
-  if (hours === 0) {
-    return `${mins}m`
-  }
-
-  if (mins === 0) {
-    return `${hours}h`
-  }
+  if (hours === 0) return `${mins}m`
+  if (mins === 0) return `${hours}h`
 
   return `${hours}h ${mins}m`
 }
@@ -278,7 +262,6 @@ function detectBreak(text: string) {
   if (durationPattern) {
     const hours = Number(durationPattern[1])
     const minutes = Number(durationPattern[2])
-
     const total = hours * 60 + minutes
 
     if (
@@ -302,9 +285,7 @@ function detectPrintedHours(text: string) {
   for (const pattern of patterns) {
     const match = text.match(pattern)
 
-    if (!match) {
-      continue
-    }
+    if (!match) continue
 
     const value = Number(match[1])
 
@@ -348,9 +329,7 @@ function addCandidate(
         row.clock_out === normalizedEnd
     )
 
-  if (duplicate) {
-    return
-  }
+  if (duplicate) return
 
   const breakMinutes =
     detectBreak(sourceText)
@@ -377,21 +356,11 @@ function addCandidate(
       sourceText,
       result.length
     ),
-
-    clock_in:
-      normalizedStart,
-
-    clock_out:
-      normalizedEnd,
-
-    break_minutes:
-      breakMinutes,
-
-    printed_hours:
-      printedHours,
-
-    needs_review:
-      needsReview,
+    clock_in: normalizedStart,
+    clock_out: normalizedEnd,
+    break_minutes: breakMinutes,
+    printed_hours: printedHours,
+    needs_review: needsReview,
   })
 }
 
@@ -450,8 +419,7 @@ function parseUniversalTimecard(
 
       for (
         let timeIndex = 0;
-        timeIndex + 1 <
-        times.length;
+        timeIndex + 1 < times.length;
         timeIndex += 2
       ) {
         addCandidate(
@@ -470,8 +438,7 @@ function parseUniversalTimecard(
 
     for (
       let index = 0;
-      index + 1 <
-      allTimes.length;
+      index + 1 < allTimes.length;
       index += 2
     ) {
       addCandidate(
@@ -486,7 +453,6 @@ function parseUniversalTimecard(
   return detected.map(
     (row, index) => ({
       ...row,
-
       label:
         row.label.startsWith('Shift ')
           ? `Shift ${index + 1}`
@@ -502,13 +468,9 @@ function parseUniversalTimecard(
 async function convertUploadedDocument(
   file: File
 ): Promise<ConvertedPage[]> {
-  const form =
-    new FormData()
+  const form = new FormData()
 
-  form.append(
-    'file',
-    file
-  )
+  form.append('file', file)
 
   const response =
     await fetch(
@@ -575,10 +537,7 @@ async function recognizeConvertedPage(
       }
     )
 
-  return (
-    result.data.text ||
-    ''
-  )
+  return result.data.text || ''
 }
 
 async function readConvertedPages(
@@ -600,8 +559,7 @@ async function readConvertedPages(
       pages.length
     )
 
-    const page =
-      pages[index]
+    const page = pages[index]
 
     const preferredImage =
       page.table_image ||
@@ -613,8 +571,7 @@ async function readConvertedPages(
         preferredImage
       )
 
-    fullText +=
-      `\n${pageText}`
+    fullText += `\n${pageText}`
   }
 
   return fullText.trim()
@@ -631,9 +588,7 @@ export default function Home() {
   ] =
     useState<
       DetectedShift[]
-    >(
-      manualRows()
-    )
+    >(manualRows())
 
   const [
     mode,
@@ -641,74 +596,65 @@ export default function Home() {
   ] =
     useState<
       'manual' | 'upload'
-    >(
-      'manual'
-    )
+    >('manual')
 
   const [
     submitted,
     setSubmitted,
-  ] =
-    useState(false)
+  ] = useState(false)
 
   const [
     message,
     setMessage,
-  ] =
-    useState('')
+  ] = useState('')
 
   const [
     readingFile,
     setReadingFile,
-  ] =
-    useState(false)
+  ] = useState(false)
 
   const fileRef =
     useRef<HTMLInputElement>(null)
 
   /* ======================================================
-     EXTRA FRONTEND-ONLY FIELDS
+     EMPLOYEE / PAY FIELDS
   ====================================================== */
 
-  const [
-    employeeName,
-    setEmployeeName,
-  ] = useState('')
+  const [employeeName, setEmployeeName] =
+    useState('')
+
+  const [employeeId, setEmployeeId] =
+    useState('')
+
+  const [manager, setManager] =
+    useState('')
+
+  const [department, setDepartment] =
+    useState('')
+
+  const [hourlyRate, setHourlyRate] =
+    useState('')
+
+  const [currency, setCurrency] =
+    useState('$')
 
   const [
-    employeeId,
-    setEmployeeId,
-  ] = useState('')
-
-  const [
-    manager,
-    setManager,
-  ] = useState('')
-
-  const [
-    department,
-    setDepartment,
-  ] = useState('')
-
-  const [
-    addOvertime,
-    setAddOvertime,
-  ] = useState(false)
-
-  const [
-    earningsPerHour,
-    setEarningsPerHour,
-  ] = useState('')
-
-  const [
-    currency,
-    setCurrency,
-  ] = useState('$')
-
-  const [
-    weeklyWorkTime,
-    setWeeklyWorkTime,
+    standardWeeklyHours,
+    setStandardWeeklyHours,
   ] = useState('40')
+
+  const [
+    standardDailyHours,
+    setStandardDailyHours,
+  ] = useState('8')
+
+  const [
+    overtimeRule,
+    setOvertimeRule,
+  ] =
+    useState<
+      'none' | 'weekly' | 'daily'
+    >('none')
 
   const [
     overtimeMultiplier,
@@ -719,6 +665,24 @@ export default function Home() {
     weekStartDate,
     setWeekStartDate,
   ] = useState('')
+
+  const [
+    weekEndDate,
+    setWeekEndDate,
+  ] = useState('')
+
+  const [
+    payPeriod,
+    setPayPeriod,
+  ] =
+    useState<
+      'weekly' |
+      'biweekly' |
+      'semimonthly'
+    >('weekly')
+
+  const [notes, setNotes] =
+    useState('')
 
   const workedMinutes =
     useMemo(
@@ -742,8 +706,7 @@ export default function Home() {
             total,
             minutes
           ) =>
-            total +
-            minutes,
+            total + minutes,
           0
         ),
       [workedMinutes]
@@ -751,8 +714,7 @@ export default function Home() {
 
   function updateRow(
     index: number,
-    key:
-      keyof DetectedShift,
+    key: keyof DetectedShift,
     value: any
   ) {
     setRows(
@@ -800,9 +762,7 @@ export default function Home() {
   async function upload(
     file?: File
   ) {
-    if (!file) {
-      return
-    }
+    if (!file) return
 
     setMode('upload')
     setSubmitted(false)
@@ -842,8 +802,7 @@ export default function Home() {
 
       if (
         !text ||
-        text.trim().length <
-          5
+        text.trim().length < 5
       ) {
         throw new Error(
           'The document was prepared successfully, but no readable text was detected.'
@@ -861,16 +820,10 @@ export default function Home() {
       )
 
       if (
-        detected.length ===
-        0
+        detected.length === 0
       ) {
-        setRows(
-          manualRows()
-        )
-
-        setMode(
-          'manual'
-        )
+        setRows(manualRows())
+        setMode('manual')
 
         setMessage(
           'The document was read successfully, but reliable clock-in and clock-out pairs were not detected. Please enter or correct the shifts manually.'
@@ -888,10 +841,7 @@ export default function Home() {
             row.needs_review
         ).length
 
-      if (
-        reviewCount >
-        0
-      ) {
+      if (reviewCount > 0) {
         setMessage(
           `${detected.length} shift(s) detected. ${reviewCount} row(s) should be reviewed before using the final total.`
         )
@@ -921,32 +871,19 @@ export default function Home() {
     ) {
       console.error(error)
 
-      setRows(
-        manualRows()
-      )
-
-      setMode(
-        'manual'
-      )
-
-      setSubmitted(
-        false
-      )
+      setRows(manualRows())
+      setMode('manual')
+      setSubmitted(false)
 
       setMessage(
         error?.message ||
           'This timecard could not be processed automatically.'
       )
     } finally {
-      setReadingFile(
-        false
-      )
+      setReadingFile(false)
 
-      if (
-        fileRef.current
-      ) {
-        fileRef.current.value =
-          ''
+      if (fileRef.current) {
+        fileRef.current.value = ''
       }
     }
   }
@@ -1017,18 +954,23 @@ export default function Home() {
     setManager('')
     setDepartment('')
 
-    setAddOvertime(false)
-    setEarningsPerHour('')
+    setHourlyRate('')
     setCurrency('$')
-    setWeeklyWorkTime('40')
-    setOvertimeMultiplier('1.5')
-    setWeekStartDate('')
 
-    if (
-      fileRef.current
-    ) {
-      fileRef.current.value =
-        ''
+    setStandardWeeklyHours('40')
+    setStandardDailyHours('8')
+
+    setOvertimeRule('none')
+    setOvertimeMultiplier('1.5')
+
+    setWeekStartDate('')
+    setWeekEndDate('')
+
+    setPayPeriod('weekly')
+    setNotes('')
+
+    if (fileRef.current) {
+      fileRef.current.value = ''
     }
   }
 
@@ -1058,9 +1000,7 @@ export default function Home() {
         <div className="heroActions">
           <button
             className="primaryAction"
-            disabled={
-              readingFile
-            }
+            disabled={readingFile}
             onClick={() =>
               fileRef.current?.click()
             }
@@ -1072,12 +1012,8 @@ export default function Home() {
 
           <button
             className="secondaryAction"
-            disabled={
-              readingFile
-            }
-            onClick={
-              startManual
-            }
+            disabled={readingFile}
+            onClick={startManual}
           >
             Enter Hours Manually
           </button>
@@ -1087,9 +1023,7 @@ export default function Home() {
             hidden
             type="file"
             accept=".pdf,.jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff"
-            onChange={(
-              event
-            ) =>
+            onChange={(event) =>
               upload(
                 event.target.files?.[0]
               )
@@ -1122,25 +1056,11 @@ export default function Home() {
 
         <div className="timeTable">
           <div className="timeTableHeader">
-            <div>
-              Day / Shift
-            </div>
-
-            <div>
-              Clock In
-            </div>
-
-            <div>
-              Clock Out
-            </div>
-
-            <div>
-              Break
-            </div>
-
-            <div>
-              Hours
-            </div>
+            <div>Day / Shift</div>
+            <div>Clock In</div>
+            <div>Clock Out</div>
+            <div>Break</div>
+            <div>Hours</div>
           </div>
 
           {rows.map(
@@ -1241,8 +1161,7 @@ export default function Home() {
                       )
                     : '—'}
 
-                  {row.printed_hours !=
-                    null && (
+                  {row.printed_hours != null && (
                     <small
                       style={{
                         display:
@@ -1268,6 +1187,19 @@ export default function Home() {
         </div>
 
         <div className="employeeDetailsSection">
+
+          <div className="detailsSectionHeader">
+            <div>
+              <span className="detailsSectionLabel">
+                EMPLOYEE INFORMATION
+              </span>
+
+              <h3>
+                Employee Details
+              </h3>
+            </div>
+          </div>
+
           <div className="employeeFields">
             <label>
               <span>
@@ -1276,13 +1208,9 @@ export default function Home() {
 
               <input
                 type="text"
-                value={
-                  employeeName
-                }
+                value={employeeName}
                 placeholder="e.g. John Smith"
-                onChange={(
-                  event
-                ) =>
+                onChange={(event) =>
                   setEmployeeName(
                     event.target.value
                   )
@@ -1297,13 +1225,9 @@ export default function Home() {
 
               <input
                 type="text"
-                value={
-                  employeeId
-                }
+                value={employeeId}
                 placeholder="e.g. 3256"
-                onChange={(
-                  event
-                ) =>
+                onChange={(event) =>
                   setEmployeeId(
                     event.target.value
                   )
@@ -1318,13 +1242,9 @@ export default function Home() {
 
               <input
                 type="text"
-                value={
-                  manager
-                }
+                value={manager}
                 placeholder="e.g. Jane Smith"
-                onChange={(
-                  event
-                ) =>
+                onChange={(event) =>
                   setManager(
                     event.target.value
                   )
@@ -1339,13 +1259,9 @@ export default function Home() {
 
               <input
                 type="text"
-                value={
-                  department
-                }
+                value={department}
                 placeholder="e.g. Engineering"
-                onChange={(
-                  event
-                ) =>
+                onChange={(event) =>
                   setDepartment(
                     event.target.value
                   )
@@ -1354,170 +1270,263 @@ export default function Home() {
             </label>
           </div>
 
-          <div className="payFields">
-            <div className="overtimeChoice">
-              <span>
-                Add Overtime?
-              </span>
+          <div className="detailsSubSection">
+            <div className="detailsSectionHeader">
+              <div>
+                <span className="detailsSectionLabel">
+                  PAY & OVERTIME
+                </span>
 
-              <div className="radioGroup">
-                <label>
-                  <input
-                    type="radio"
-                    name="addOvertime"
-                    checked={
-                      addOvertime
-                    }
-                    onChange={() =>
-                      setAddOvertime(
-                        true
-                      )
-                    }
-                  />
-
-                  Yes
-                </label>
-
-                <label>
-                  <input
-                    type="radio"
-                    name="addOvertime"
-                    checked={
-                      !addOvertime
-                    }
-                    onChange={() =>
-                      setAddOvertime(
-                        false
-                      )
-                    }
-                  />
-
-                  No
-                </label>
+                <h3>
+                  Pay Configuration
+                </h3>
               </div>
             </div>
 
-            <label>
+            <div className="payConfigurationGrid">
+              <label>
+                <span>
+                  Hourly Rate
+                </span>
+
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={hourlyRate}
+                  placeholder="50.00"
+                  onChange={(event) =>
+                    setHourlyRate(
+                      event.target.value
+                    )
+                  }
+                />
+              </label>
+
+              <label>
+                <span>
+                  Currency
+                </span>
+
+                <select
+                  value={currency}
+                  onChange={(event) =>
+                    setCurrency(
+                      event.target.value
+                    )
+                  }
+                >
+                  <option value="$">
+                    $ USD
+                  </option>
+
+                  <option value="€">
+                    € EUR
+                  </option>
+
+                  <option value="£">
+                    £ GBP
+                  </option>
+
+                  <option value="C$">
+                    C$ CAD
+                  </option>
+
+                  <option value="A$">
+                    A$ AUD
+                  </option>
+                </select>
+              </label>
+
+              <label>
+                <span>
+                  Standard Weekly Hours
+                </span>
+
+                <input
+                  type="number"
+                  min="0"
+                  step="0.25"
+                  value={
+                    standardWeeklyHours
+                  }
+                  placeholder="40"
+                  onChange={(event) =>
+                    setStandardWeeklyHours(
+                      event.target.value
+                    )
+                  }
+                />
+              </label>
+
+              <label>
+                <span>
+                  Standard Daily Hours
+                </span>
+
+                <input
+                  type="number"
+                  min="0"
+                  step="0.25"
+                  value={
+                    standardDailyHours
+                  }
+                  placeholder="8"
+                  onChange={(event) =>
+                    setStandardDailyHours(
+                      event.target.value
+                    )
+                  }
+                />
+              </label>
+
+              <label>
+                <span>
+                  Overtime Rule
+                </span>
+
+                <select
+                  value={overtimeRule}
+                  onChange={(event) =>
+                    setOvertimeRule(
+                      event.target.value as
+                        | 'none'
+                        | 'weekly'
+                        | 'daily'
+                    )
+                  }
+                >
+                  <option value="none">
+                    No Overtime
+                  </option>
+
+                  <option value="weekly">
+                    Weekly Overtime
+                  </option>
+
+                  <option value="daily">
+                    Daily Overtime
+                  </option>
+                </select>
+              </label>
+
+              <label>
+                <span>
+                  Overtime Multiplier
+                </span>
+
+                <input
+                  type="number"
+                  min="1"
+                  step="0.1"
+                  value={
+                    overtimeMultiplier
+                  }
+                  placeholder="1.5"
+                  disabled={
+                    overtimeRule ===
+                    'none'
+                  }
+                  onChange={(event) =>
+                    setOvertimeMultiplier(
+                      event.target.value
+                    )
+                  }
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="detailsSubSection">
+            <div className="detailsSectionHeader">
+              <div>
+                <span className="detailsSectionLabel">
+                  PAY PERIOD
+                </span>
+
+                <h3>
+                  Period Details
+                </h3>
+              </div>
+            </div>
+
+            <div className="payPeriodGrid">
+              <label>
+                <span>
+                  Week Start Date
+                </span>
+
+                <input
+                  type="date"
+                  value={weekStartDate}
+                  onChange={(event) =>
+                    setWeekStartDate(
+                      event.target.value
+                    )
+                  }
+                />
+              </label>
+
+              <label>
+                <span>
+                  Week End Date
+                </span>
+
+                <input
+                  type="date"
+                  value={weekEndDate}
+                  onChange={(event) =>
+                    setWeekEndDate(
+                      event.target.value
+                    )
+                  }
+                />
+              </label>
+
+              <label>
+                <span>
+                  Pay Period
+                </span>
+
+                <select
+                  value={payPeriod}
+                  onChange={(event) =>
+                    setPayPeriod(
+                      event.target.value as
+                        | 'weekly'
+                        | 'biweekly'
+                        | 'semimonthly'
+                    )
+                  }
+                >
+                  <option value="weekly">
+                    Weekly
+                  </option>
+
+                  <option value="biweekly">
+                    Biweekly
+                  </option>
+
+                  <option value="semimonthly">
+                    Semi-monthly
+                  </option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          <div className="detailsSubSection">
+            <label className="notesField">
               <span>
-                Earnings Per Hour
+                Notes
               </span>
 
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={
-                  earningsPerHour
-                }
-                placeholder="50"
-                onChange={(
-                  event
-                ) =>
-                  setEarningsPerHour(
-                    event.target.value
-                  )
-                }
-              />
-            </label>
-
-            <label>
-              <span>
-                Currency
-              </span>
-
-              <select
-                value={
-                  currency
-                }
-                onChange={(
-                  event
-                ) =>
-                  setCurrency(
-                    event.target.value
-                  )
-                }
-              >
-                <option value="$">
-                  $ USD
-                </option>
-
-                <option value="€">
-                  € EUR
-                </option>
-
-                <option value="£">
-                  £ GBP
-                </option>
-
-                <option value="C$">
-                  C$ CAD
-                </option>
-
-                <option value="A$">
-                  A$ AUD
-                </option>
-              </select>
-            </label>
-
-            <label>
-              <span>
-                Weekly Work Time (hrs)
-              </span>
-
-              <input
-                type="number"
-                min="0"
-                value={
-                  weeklyWorkTime
-                }
-                placeholder="40"
-                onChange={(
-                  event
-                ) =>
-                  setWeeklyWorkTime(
-                    event.target.value
-                  )
-                }
-              />
-            </label>
-
-            <label>
-              <span>
-                Overtime Multiplier
-              </span>
-
-              <input
-                type="number"
-                min="1"
-                step="0.1"
-                value={
-                  overtimeMultiplier
-                }
-                placeholder="1.5"
-                onChange={(
-                  event
-                ) =>
-                  setOvertimeMultiplier(
-                    event.target.value
-                  )
-                }
-              />
-            </label>
-
-            <label>
-              <span>
-                Week Start Date
-              </span>
-
-              <input
-                type="date"
-                value={
-                  weekStartDate
-                }
-                onChange={(
-                  event
-                ) =>
-                  setWeekStartDate(
+              <textarea
+                value={notes}
+                placeholder="Optional notes, corrections, holiday information, PTO, training, or other payroll comments."
+                rows={4}
+                onChange={(event) =>
+                  setNotes(
                     event.target.value
                   )
                 }
@@ -1585,21 +1594,10 @@ export default function Home() {
 
           <div className="summaryTable">
             <div className="summaryHeader">
-              <div>
-                Day / Shift
-              </div>
-
-              <div>
-                Work Period
-              </div>
-
-              <div>
-                Break
-              </div>
-
-              <div>
-                Hours
-              </div>
+              <div>Day / Shift</div>
+              <div>Work Period</div>
+              <div>Break</div>
+              <div>Hours</div>
             </div>
 
             {rows.map(
