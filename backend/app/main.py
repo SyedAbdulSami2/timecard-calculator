@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import os
 import re
 from typing import Any
 
@@ -11,14 +12,19 @@ from fastapi.responses import StreamingResponse
 
 from .document_converter import convert_document
 from .extractor import extract_document
+from .timecard_extractor import extract_timecard_document
 
+
+# ============================================================
+# APPLICATION
+# ============================================================
 
 app = FastAPI(
     title="TimeCard Calculator API",
-    version="2.0.0",
+    version="3.0.0",
     description=(
-        "API for converting timecards, extracting time entries, "
-        "calculating worked hours, and exporting results."
+        "API for converting timecards, automatically extracting "
+        "time entries, calculating worked hours, and exporting results."
     ),
 )
 
@@ -27,9 +33,25 @@ app = FastAPI(
 # CORS
 # ============================================================
 
+frontend_origin = os.getenv(
+    "FRONTEND_ORIGIN",
+    "",
+).strip()
+
+allowed_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+if frontend_origin:
+    allowed_origins.append(
+        frontend_origin
+    )
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -37,7 +59,7 @@ app.add_middleware(
 
 
 # ============================================================
-# BASIC HEALTH CHECK
+# ROOT / HEALTH
 # ============================================================
 
 @app.get("/")
@@ -45,7 +67,7 @@ async def root():
     return {
         "name": "TimeCard Calculator API",
         "status": "running",
-        "version": "2.0.0",
+        "version": "3.0.0",
     }
 
 
@@ -65,7 +87,7 @@ async def convert_timecard(
     file: UploadFile = File(...)
 ):
     """
-    Convert PDF/image timecards into standardized images.
+    Convert supported PDF/image timecards into normalized images.
 
     Supported:
     - PDF
@@ -101,13 +123,12 @@ async def convert_timecard(
         raise HTTPException(
             status_code=400,
             detail=str(exc),
-        )
+        ) from exc
 
     except Exception as exc:
         print(
             "Document conversion error:",
             repr(exc),
-            flush=True,
         )
 
         raise HTTPException(
@@ -116,17 +137,91 @@ async def convert_timecard(
                 "The document could not be converted. "
                 "Please try another copy or image."
             ),
-        )
+        ) from exc
 
 
 # ============================================================
-# EXTRACTION ENDPOINT
+# UNIVERSAL TIMECARD EXTRACTION
+# ============================================================
+
+@app.post("/extract-timecard")
+async def extract_timecard_universal(
+    file: UploadFile = File(...)
+):
+    """
+    Universal timecard extraction endpoint.
+
+    Current behavior:
+
+    PDF:
+    1. Tries native PDF text first.
+    2. Parses machine-readable timecard rows.
+    3. Returns OCR-required status when native extraction
+       is not sufficient.
+
+    Images/scans:
+    - Returns OCR-required status.
+
+    Backend OCR fallback will be connected in the next stage.
+    """
+
+    try:
+        data = await file.read()
+
+        if not data:
+            raise HTTPException(
+                status_code=400,
+                detail="The uploaded file is empty.",
+            )
+
+        result = extract_timecard_document(
+            file.filename or "timecard",
+            data,
+        )
+
+        return result
+
+    except HTTPException:
+        raise
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
+
+    except Exception as exc:
+        print(
+            "Universal extraction error:",
+            repr(exc),
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "The timecard could not be extracted."
+            ),
+        ) from exc
+
+
+# ============================================================
+# ORIGINAL EXTRACTION ENDPOINT
 # ============================================================
 
 @app.post("/extract")
 async def extract_timecard(
     file: UploadFile = File(...)
 ):
+    """
+    Legacy extraction endpoint.
+
+    CSV/XLSX can be extracted directly.
+    PDF/images can be converted by the document converter.
+
+    The new /extract-timecard endpoint will eventually replace
+    this workflow for automatic universal timecard reading.
+    """
+
     try:
         data = await file.read()
 
@@ -150,19 +245,18 @@ async def extract_timecard(
         raise HTTPException(
             status_code=400,
             detail=str(exc),
-        )
+        ) from exc
 
     except Exception as exc:
         print(
             "Extraction error:",
             repr(exc),
-            flush=True,
         )
 
         raise HTTPException(
             status_code=500,
             detail="Could not extract the timecard.",
-        )
+        ) from exc
 
 
 # ============================================================
@@ -180,10 +274,18 @@ def normalize_time(
     if not text:
         return ""
 
-    text = text.replace(".", ":")
-    text = re.sub(r"\s+", "", text)
+    text = text.replace(
+        ".",
+        ":",
+    )
 
-    # OCR corrections
+    text = re.sub(
+        r"\s+",
+        "",
+        text,
+    )
+
+    # OCR corrections.
     text = re.sub(
         r"(?<=\d)[Oo](?=\d)",
         "0",
@@ -203,14 +305,14 @@ def parse_time(
     value: Any,
 ) -> int | None:
     """
-    Returns minutes after midnight.
+    Return minutes after midnight.
 
     Supports:
-    6:40AM
-    06:40
-    18:40
-    640
-    1840
+    - 6:40AM
+    - 06:40
+    - 18:40
+    - 640
+    - 1840
     """
 
     text = normalize_time(
@@ -220,7 +322,7 @@ def parse_time(
     if not text:
         return None
 
-    meridiem = None
+    meridiem: str | None = None
 
     match = re.search(
         r"(AM|PM)$",
@@ -337,11 +439,9 @@ def worked_minutes(
 
     minutes = end - start
 
-    # Overnight shift
+    # Overnight shift.
     if minutes < 0:
-        minutes += (
-            24 * 60
-        )
+        minutes += 24 * 60
 
     try:
         break_value = int(
@@ -375,6 +475,21 @@ def worked_minutes(
 async def calculate_timecard(
     payload: dict[str, Any],
 ):
+    """
+    Calculate work hours supplied by the frontend.
+
+    Expected shape:
+
+    {
+        "timecard": {
+            "rows": [...]
+        },
+        "overtime": {
+            "mode": "none"
+        }
+    }
+    """
+
     try:
         timecard = payload.get(
             "timecard",
@@ -405,23 +520,39 @@ async def calculate_timecard(
             "none",
         )
 
-        daily_threshold = float(
-            overtime.get(
-                "daily_threshold",
-                8,
+        try:
+            daily_threshold = float(
+                overtime.get(
+                    "daily_threshold",
+                    8,
+                )
+                or 8
             )
-            or 8
-        )
 
-        weekly_threshold = float(
-            overtime.get(
-                "weekly_threshold",
-                40,
+        except (
+            TypeError,
+            ValueError,
+        ):
+            daily_threshold = 8.0
+
+        try:
+            weekly_threshold = float(
+                overtime.get(
+                    "weekly_threshold",
+                    40,
+                )
+                or 40
             )
-            or 40
-        )
 
-        calculated_rows = []
+        except (
+            TypeError,
+            ValueError,
+        ):
+            weekly_threshold = 40.0
+
+        calculated_rows: list[
+            dict[str, Any]
+        ] = []
 
         weekly_regular_used = 0.0
 
@@ -437,14 +568,22 @@ async def calculate_timecard(
                 continue
 
             clock_in = (
-                row.get("clock_in")
-                or row.get("start_time")
+                row.get(
+                    "clock_in"
+                )
+                or row.get(
+                    "start_time"
+                )
                 or ""
             )
 
             clock_out = (
-                row.get("clock_out")
-                or row.get("end_time")
+                row.get(
+                    "clock_out"
+                )
+                or row.get(
+                    "end_time"
+                )
                 or ""
             )
 
@@ -524,10 +663,14 @@ async def calculate_timecard(
 
             calculated_row = {
                 **row,
-                "regular_hours": regular_hours,
-                "overtime_hours": overtime_hours,
-                "total_hours": total_row_hours,
-                "worked_minutes": minutes,
+                "regular_hours":
+                    regular_hours,
+                "overtime_hours":
+                    overtime_hours,
+                "total_hours":
+                    total_row_hours,
+                "worked_minutes":
+                    minutes,
             }
 
             calculated_rows.append(
@@ -562,8 +705,10 @@ async def calculate_timecard(
         }
 
         return {
-            "rows": calculated_rows,
-            "summary": summary,
+            "rows":
+                calculated_rows,
+            "summary":
+                summary,
         }
 
     except HTTPException:
@@ -573,13 +718,12 @@ async def calculate_timecard(
         print(
             "Calculation error:",
             repr(exc),
-            flush=True,
         )
 
         raise HTTPException(
             status_code=500,
             detail="Could not calculate hours.",
-        )
+        ) from exc
 
 
 # ============================================================
@@ -600,6 +744,15 @@ async def export_csv(
             "rows",
             [],
         )
+
+        if not isinstance(
+            rows,
+            list,
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="timecard.rows must be a list.",
+            )
 
         output = io.StringIO()
 
@@ -629,19 +782,29 @@ async def export_csv(
                 continue
 
             label = (
-                row.get("label")
-                or row.get("day")
-                or row.get("date")
+                row.get(
+                    "label"
+                )
+                or row.get(
+                    "day"
+                )
+                or row.get(
+                    "date"
+                )
                 or f"Shift {index + 1}"
             )
 
             clock_in = (
-                row.get("clock_in")
+                row.get(
+                    "clock_in"
+                )
                 or ""
             )
 
             clock_out = (
-                row.get("clock_out")
+                row.get(
+                    "clock_out"
+                )
                 or ""
             )
 
@@ -709,14 +872,16 @@ async def export_csv(
 
         return response
 
+    except HTTPException:
+        raise
+
     except Exception as exc:
         print(
             "CSV export error:",
             repr(exc),
-            flush=True,
         )
 
         raise HTTPException(
             status_code=500,
             detail="Could not export CSV.",
-        )
+        ) from exc
